@@ -75,6 +75,56 @@ def login():
 
     return jsonify({"access_token": access_token}), 200 
     
+@app.route("/register", methods=['POST'])
+def register():
+
+    data = request.get_json()
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    name = data.get('name')
+    last_name = data.get('last_name')
+    username = data.get('username')
+    email = data.get('email')
+    password = data.get('password')
+    confirm_password = data.get('confirm_password')
+
+    if name and last_name and username and email and password and confirm_password:
+
+
+        username_exists = db.session.scalar(db.select(User).where(User.username == username))
+
+        if username_exists:
+            return jsonify({"error": "User with this username already exists"}), 409
+        
+
+        email_exists = db.session.scalar(db.select(User).where(User.email == email))
+
+        if email_exists:
+            return jsonify({"error": "User with this email exists"}), 409
+
+        # CREATE EMAIL VERIFICATION LATER
+
+        if password != confirm_password:
+            return jsonify({"error": "Passwords do not match"}) , 400
+
+        new_user = User(
+            name=name,
+            last_name=last_name,
+            username=username,
+            email=email,
+            password= generate_password_hash(password)
+        )
+
+        db.session.add(new_user)
+        db.session.commit()
+
+        return jsonify({"success": "You have successfully registered."}), 201
+
+
+    else:
+        return jsonify({"error": "You need to enter all fields"}), 400
 
 
 
