@@ -4,12 +4,12 @@ import os
 from dotenv import load_dotenv
 
 # IMPORTING MODULE FOR AUTH, LOGIN
-from flask_login import LoginManager, login_user, logout_user, login_required
-#IMPORTING MODULE FOR DATE, TIME
+
+# IMPORTING MODULE FOR DATE, TIME
 import datetime
 
 # IMPORTING MODEL FILE
-from models import db, User
+from models import db, User, RevokedToken
 
 # IMPORTING WERZEUG FOR CHECKING PASSWORD HASH AND TO GENERATE PASSWORD HASH
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -19,33 +19,41 @@ from flask_jwt_extended import JWTManager, create_access_token, jwt_required, ge
 
 load_dotenv()
 
-login_manager = LoginManager()
-
 
 app = Flask(__name__)
+
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///auth.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.getenv("SECRET_KEY")
 app.config['JWT_SECRET_KEY'] =os.getenv("JWT_SECRET_KEY")
 
-login_manager.init_app(app)
 db.init_app(app)
 
 jwt = JWTManager(app)
 
+@jwt.token_in_blocklist_loader
+def check_if_token_revoked(jwt_header, jwt_payload):
+
+    token = db.session.scalar(
+        db.select(RevokedToken).where(
+            RevokedToken.jti == jwt_payload["jti"]
+        )
+    )
+    
+    return token is not None
+
 with app.app_context():
     db.create_all()
-
-
-@login_manager.user_loader
-def load_user(user_id):
-    return db.session.get(User, int(user_id))
 
 
 @app.route("/login", methods=['POST'])
 def login():
 
     data = request.get_json()
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+    
     email = data.get('email')
     password = data.get('password')
 
@@ -64,14 +72,11 @@ def login():
     if user_exists.status != "active":
         return jsonify({"error": "This account is inactive."}), 403
 
-    access_token = create_access_token({
-        "identity": user_exists.email,
-        "user_id" : user_exists.id,
-        "status": user_exists.status,
-        "role": user_exists.role
-    })
+    access_token = create_access_token(
+        identity=str(user_exists.id),
+        additional_claims={"role": user_exists.role}
+    )
     
-    login_user(user_exists)
 
     return jsonify({"access_token": access_token}), 200 
     
@@ -125,7 +130,18 @@ def register():
 
     else:
         return jsonify({"error": "You need to enter all fields"}), 400
+    
 
+@app.route("/logout", methods=['POST'])
+@jwt_required()
+def logout():
+    jti = get_jwt()["jti"]
+
+    revoked_token = RevokedToken(jti=jti)
+    db.session.add(revoked_token)
+    db.session.commit()
+
+    return jsonify({"success": "You have successfully logged out."}), 200
 
 
 if __name__ == "__main__":

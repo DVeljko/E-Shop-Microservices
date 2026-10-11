@@ -4,7 +4,7 @@ from flask_login import UserMixin
 
 db = SQLAlchemy()
 
-class User(UserMixin ,db.Model):
+class User(db.Model):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(nullable=False)
@@ -15,4 +15,10 @@ class User(UserMixin ,db.Model):
     role: Mapped[str] = mapped_column(nullable=False, default="customer")
     password: Mapped[str] = mapped_column(nullable=False)
     status: Mapped[str] = mapped_column(nullable=False, default="active")
+
+class RevokedToken(db.Model):
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    jti: Mapped[str] = mapped_column(unique=True, nullable=False)
+
 
