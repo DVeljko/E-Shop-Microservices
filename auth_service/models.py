@@ -1,9 +1,10 @@
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import Mapped, mapped_column
+from flask_login import UserMixin
 
 db = SQLAlchemy()
 
-class User(db.Model):
+class User(UserMixin ,db.Model):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(nullable=False)
