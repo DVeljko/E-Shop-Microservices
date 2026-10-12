@@ -143,6 +143,45 @@ def logout():
 
     return jsonify({"success": "You have successfully logged out."}), 200
 
+@app.route("/change-password", methods=['POST'])
+@jwt_required()
+def change_password():
+
+    # DODATI RUCNU VALIDACIJU SIFRE DA NE BI KORISNIK PREKO JSON-A DIREKTNO POSLAO PODATKE OVOJ RUTI 
+
+    user_id = get_jwt_identity()
+
+    user_exists = db.session.scalar(db.select(User).where(User.id == user_id))
+
+    if not user_exists:
+        return jsonify({"error": "User with this ID does not exist!"}), 404
+
+    if user_exists.status != "active":
+        return jsonify({"error": "This user profile is not active"}), 403
+
+    data = request.get_json()
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+    
+    current_password = data.get("current_password")
+    new_password = data.get("new_password")
+    confirm_new_password = data.get("confirm_new_password")
+
+    if not current_password or not new_password or not confirm_new_password:
+        return jsonify({"error": "You didnt send some of these fields: current password, new password, confirm new password"}), 400
+
+    if not check_password_hash(user_exists.password, current_password):
+        return jsonify({"error": "Your current password is not correct"}), 400
+
+    if new_password != confirm_new_password:
+        return jsonify({"error": "New password do not match"}), 400
+
+    user_exists.password = generate_password_hash(new_password)
+    db.session.commit()
+
+    return jsonify({"success": "Your password has been changed successfully."}), 200
+
 
 if __name__ == "__main__":
     app.run(debug=True, port=5005)
