@@ -135,7 +135,7 @@ def register():
     
 
 @app.route("/logout", methods=['POST'])
-@jwt_required()
+@jwt_required(verify_type=False)
 def logout():
     jti = get_jwt()["jti"]
 
