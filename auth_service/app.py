@@ -15,7 +15,7 @@ from models import db, User, RevokedToken
 from werkzeug.security import check_password_hash, generate_password_hash
 
 # IMPORTING JWT FOR CREATING ACCESS_TOKEN AND OTHER
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, get_jwt
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, get_jwt, create_refresh_token
 
 load_dotenv()
 
@@ -76,9 +76,11 @@ def login():
         identity=str(user_exists.id),
         additional_claims={"role": user_exists.role}
     )
+
+    refresh_token = create_refresh_token(identity=str(user_exists.id))
     
 
-    return jsonify({"access_token": access_token}), 200 
+    return jsonify({"access_token": access_token, "refresh_token": refresh_token}), 200 
     
 @app.route("/register", methods=['POST'])
 def register():
@@ -181,6 +183,27 @@ def change_password():
     db.session.commit()
 
     return jsonify({"success": "Your password has been changed successfully."}), 200
+
+
+@app.route("/refresh-token", methods=['POST'])
+@jwt_required(refresh=True)
+def refresh_token():
+    user_id = get_jwt_identity()
+    user = db.session.get(User, int(user_id))
+
+    if not user:
+        return jsonify({"error": "User not found."}), 404
+
+    if user.status != "active":
+        return jsonify({"error": "This account is inactive."}), 403
+    access_token = create_access_token(
+        identity=str(user.id),
+        additional_claims={
+            "role": user.role
+        }
+    )
+
+    return jsonify({"access_token": access_token}), 200
 
 
 if __name__ == "__main__":
