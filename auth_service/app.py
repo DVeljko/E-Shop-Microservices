@@ -196,6 +196,7 @@ def refresh_token():
 
     if user.status != "active":
         return jsonify({"error": "This account is inactive."}), 403
+    
     access_token = create_access_token(
         identity=str(user.id),
         additional_claims={
@@ -204,6 +205,33 @@ def refresh_token():
     )
 
     return jsonify({"access_token": access_token}), 200
+
+
+@app.route("/profile")
+@jwt_required()
+def profile():
+    user_id = get_jwt_identity()
+    user = db.session.get(User, int(user_id))
+
+    if not user:
+        return jsonify({"error": "User not found."}), 404
+
+    if user.status != "active":
+        return jsonify({"error": "This account is inactive."}), 403
+
+    return jsonify(
+        {
+            "name": user.name,
+            "last_name": user.last_name,
+            "username": user.username,
+            "email": user.email,
+            "role": user.role,
+            "status":user.status
+        }
+    )
+
+    
+
 
 
 if __name__ == "__main__":
