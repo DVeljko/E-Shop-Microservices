@@ -230,9 +230,68 @@ def profile():
         }
     )
 
-    
+@app.route("/edit-profile", methods=["PATCH"])
+@jwt_required()
+def edit_profile():
+    data = request.get_json()
 
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
 
+    user_id = get_jwt_identity()
+    user = db.session.get(User, int(user_id))
+
+    if not user:
+        return jsonify({"error": "User not found."}), 404
+
+    if user.status != "active":
+        return jsonify({"error": "This account is inactive."}), 403
+
+    allowed_fields = {"name", "last_name", "username"}
+
+    if not data:
+        return jsonify({"error": "No fields provided."}), 400
+
+    if any(field not in allowed_fields for field in data):
+        return jsonify({
+            "error": "Only name, last_name and username can be updated."
+        }), 400
+
+    for field, value in data.items():
+        if not isinstance(value, str) or not value.strip():
+            return jsonify({
+                "error": f"{field} must be a non-empty string."
+            }), 400
+
+    if "username" in data:
+        username = data["username"].strip()
+
+        username_exists = db.session.scalar(
+            db.select(User).where(
+                User.username == username,
+                User.id != user.id
+            )
+        )
+
+        if username_exists:
+            return jsonify({
+                "error": "User with this username already exists."
+            }), 409
+
+    if "name" in data:
+        user.name = data["name"].strip()
+
+    if "last_name" in data:
+        user.last_name = data["last_name"].strip()
+
+    if "username" in data:
+        user.username = username
+
+    db.session.commit()
+
+    return jsonify({
+        "success": "Your profile has been updated successfully."
+    }), 200
 
 if __name__ == "__main__":
     app.run(debug=True, port=5005)
