@@ -16,6 +16,10 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 # IMPORTING JWT FOR CREATING ACCESS_TOKEN AND OTHER
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, get_jwt, create_refresh_token
+from flask_jwt_extended import decode_token
+from flask_jwt_extended.exceptions import JWTDecodeError
+from jwt.exceptions import InvalidTokenError
+from sqlalchemy.exc import SQLAlchemyError
 
 load_dotenv()
 
@@ -134,16 +138,55 @@ def register():
         return jsonify({"error": "You need to enter all fields"}), 400
     
 
-@app.route("/logout", methods=['POST'])
-@jwt_required(verify_type=False)
+@app.route("/logout", methods=["POST"])
+@jwt_required(refresh=True)
 def logout():
-    jti = get_jwt()["jti"]
+    data = request.get_json()
 
-    revoked_token = RevokedToken(jti=jti)
-    db.session.add(revoked_token)
-    db.session.commit()
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
 
-    return jsonify({"success": "You have successfully logged out."}), 200
+    access_token = data.get("access_token")
+
+    if not isinstance(access_token, str) or not access_token.strip():
+        return jsonify({"error": "Access token is required."}), 400
+
+    # Refresh token je već proveren kroz dekorator.
+    refresh_payload = get_jwt()
+
+    # Proveravamo potpis access tokena, čak i ako je istekao.
+    try:
+        access_payload = decode_token(access_token, allow_expired=True)
+    except (InvalidTokenError, JWTDecodeError):
+        return jsonify({"error": "Invalid access token."}), 400
+
+    if access_payload.get("type") != "access":
+        return jsonify({"error": "An access token is required."}), 400
+
+    if access_payload["sub"] != refresh_payload["sub"]:
+        return jsonify({
+            "error": "Both tokens must belong to the same user."
+        }), 403
+
+    # Oba ID-a čuvamo u jednoj transakciji.
+    try:
+        for jti in (access_payload["jti"], refresh_payload["jti"]):
+            already_revoked = db.session.scalar(
+                db.select(RevokedToken).where(RevokedToken.jti == jti)
+            )
+
+            if not already_revoked:
+                db.session.add(RevokedToken(jti=jti))
+
+        db.session.commit()
+
+    except SQLAlchemyError:
+        db.session.rollback()
+        return jsonify({"error": "Could not complete logout."}), 500
+
+    return jsonify({
+        "success": "You have successfully logged out."
+    }), 200
 
 @app.route("/change-password", methods=['POST'])
 @jwt_required()
@@ -252,10 +295,11 @@ def edit_profile():
     if not data:
         return jsonify({"error": "No fields provided."}), 400
 
-    if any(field not in allowed_fields for field in data):
-        return jsonify({
-            "error": "Only name, last_name and username can be updated."
-        }), 400
+    for field in data:
+        if field not in allowed_fields:
+            return jsonify({
+                "error": "Only name, last_name and username can be updated."
+            }), 400
 
     for field, value in data.items():
         if not isinstance(value, str) or not value.strip():
@@ -292,6 +336,7 @@ def edit_profile():
     return jsonify({
         "success": "Your profile has been updated successfully."
     }), 200
+
 
 if __name__ == "__main__":
     app.run(debug=True, port=5005)
