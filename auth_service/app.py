@@ -3,8 +3,6 @@ from flask_sqlalchemy import SQLAlchemy
 import os
 from dotenv import load_dotenv
 
-# IMPORTING MODULE FOR AUTH, LOGIN
-
 # IMPORTING MODULE FOR DATE, TIME
 import datetime
 
@@ -336,6 +334,37 @@ def edit_profile():
     return jsonify({
         "success": "Your profile has been updated successfully."
     }), 200
+
+@app.route("/deactivate-account", methods=['PATCH'])
+@jwt_required()
+def deactivate_account():
+
+    user_id = get_jwt_identity()
+    user = db.session.get(User, int(user_id))
+
+    if not user:
+        return jsonify({"error": "This user does not exist!"}), 404
+
+    data = request.get_json()
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    current_password = data.get("current_password")
+
+    if not current_password or not isinstance(current_password, str):    
+        return jsonify({"error": "Current password is required and must be a string."}), 400
+
+    if not check_password_hash(user.password, current_password):
+        return jsonify({"error": "Your current password is incorrect."}), 400
+
+    if user.status == "inactive":
+        return jsonify({"error": "Your status is already inactive"}), 400
+
+    user.status = "inactive"
+    db.session.commit()
+
+    return jsonify({"success": "Your account has been deactivated successfully."}), 200
 
 
 if __name__ == "__main__":
