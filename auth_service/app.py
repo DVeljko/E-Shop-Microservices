@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 import datetime
 
 # IMPORTING MODEL FILE
-from models import db, User, RevokedToken
+from models import db, User, RevokedToken, Address
 
 # IMPORTING WERZEUG FOR CHECKING PASSWORD HASH AND TO GENERATE PASSWORD HASH
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -366,6 +366,51 @@ def deactivate_account():
 
     return jsonify({"success": "Your account has been deactivated successfully."}), 200
 
+
+@app.route("/addresses", methods=['POST'])
+@jwt_required()
+def add_address():
+
+    user_id = int(get_jwt_identity())
+    user = db.session.get(User, user_id)
+
+    if not user:
+        return jsonify({"error": "This user does not exist!"}), 404
+    
+    if user.status != "active":
+        return jsonify({"error": "This account is inactive."}), 403
+
+    data = request.get_json()
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    fields = {
+        "name": data.get("name"),
+        "last_name": data.get("last_name"),
+        "street_name": data.get("street_name"),
+        "street_number": data.get("street_number"),
+        "country": data.get("country"),
+        "postal_code": data.get("postal_code"),
+        "city": data.get("city"),
+        "phone_number": data.get("phone_number"),
+    }
+
+    for field, value in fields.items():
+        if not isinstance(value, str) or not value.strip():
+            return jsonify({
+                "error": f"{field} must be a non-empty string."
+            }), 400
+
+        fields[field] = value.strip()
+        
+
+    new_address = Address(user_id=user_id,**fields)
+
+    db.session.add(new_address)
+    db.session.commit()
+
+    return jsonify({"success": "New address has been added successfully"}), 201
 
 if __name__ == "__main__":
     app.run(debug=True, port=5005)
