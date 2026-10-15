@@ -412,5 +412,43 @@ def add_address():
 
     return jsonify({"success": "New address has been added successfully"}), 201
 
+@app.route("/addresses", methods=['GET'])
+@jwt_required()
+def show_adresses():
+
+    user_id = int(get_jwt_identity())
+    user = db.session.get(User, user_id)
+
+    if not user:
+        return jsonify({"error": "This user does not exist!"}), 404
+
+    if user.status != "active":
+        return jsonify({"error": "This account is inactive."}), 403
+
+    all_addresses = db.session.scalars(db.select(Address).where(Address.user_id == user_id))
+
+    addresses = [
+        {
+            "id": address.id,
+            "name": address.name,
+            "last_name": address.last_name,
+            "street_name": address.street_name,
+            "street_number": address.street_number,
+            "country": address.country,
+            "postal_code": address.postal_code,
+            "city": address.city,
+            "phone_number": address.phone_number
+        }
+        for address in all_addresses
+    ]
+
+    if not addresses:
+        return jsonify([]), 200
+
+    return jsonify({"addresses": addresses}), 200
+
+
+
+
 if __name__ == "__main__":
     app.run(debug=True, port=5005)
