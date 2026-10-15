@@ -295,15 +295,11 @@ def edit_profile():
 
     for field in data:
         if field not in allowed_fields:
-            return jsonify({
-                "error": "Only name, last_name and username can be updated."
-            }), 400
+            return jsonify({"error": "Only name, last_name and username can be updated."}), 400
 
     for field, value in data.items():
         if not isinstance(value, str) or not value.strip():
-            return jsonify({
-                "error": f"{field} must be a non-empty string."
-            }), 400
+            return jsonify({"error": f"{field} must be a non-empty string."}), 400
 
     if "username" in data:
         username = data["username"].strip()
@@ -446,6 +442,75 @@ def show_adresses():
         return jsonify([]), 200
 
     return jsonify({"addresses": addresses}), 200
+
+@app.route("/addresses/<int:address_id>", methods=["PATCH"])
+@jwt_required()
+def edit_address(address_id):
+
+    user_id = int(get_jwt_identity())
+    user = db.session.get(User, user_id)
+
+    if not user:
+        return jsonify({"error": "This user does not exist!"}), 404
+
+    if user.status != "active":
+        return jsonify({"error": "This account is inactive."}), 403
+
+    data = request.get_json()
+    if not isinstance(data , dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    if not data:
+        return jsonify({"error": "No fields provided."}), 400
+
+
+    allowed_fields = ["name", "last_name", "street_name", "street_number", "country", "postal_code", "city", "phone_number"]
+
+    for field in data:
+        if field not in allowed_fields:
+            return jsonify({"error": "You can only edit ('name', 'last name', 'street name', 'street number', 'country', 'postal code', 'city', 'phone number')"}), 400
+
+    for field, value in data.items():
+
+        if not isinstance(value, str) or not value.strip():
+            return jsonify({"error": f"{field} must be a non-empty string."}), 400
+
+    old_address = db.session.scalar(db.select(Address).where(Address.id == address_id, Address.user_id == user_id))
+
+    if not old_address:
+        return jsonify({"error": "Address not found."}), 404
+
+    if "name" in data:
+        old_address.name = data.get('name').strip()
+
+    if "last_name" in data:
+        old_address.last_name = data.get('last_name').strip()
+
+    if "street_name" in data:
+        old_address.street_name = data.get('street_name').strip()
+
+    if "street_number" in data:
+        old_address.street_number = data.get("street_number").strip()
+
+    if "country" in data:
+        old_address.country = data.get('country').strip()
+
+    if "postal_code" in data:
+        old_address.postal_code = data.get("postal_code").strip()
+
+    if "city" in data:
+        old_address.city = data.get('city').strip()
+
+    if "phone_number" in data:
+        old_address.phone_number = data.get("phone_number").strip()
+
+    db.session.commit()
+    return jsonify({"success": "You address has been updated"}) , 200
+
+
+
+
+
 
 
 
