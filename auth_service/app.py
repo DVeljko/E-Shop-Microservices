@@ -439,7 +439,7 @@ def show_adresses():
     ]
 
     if not addresses:
-        return jsonify([]), 200
+        return jsonify({"addresses": []}), 200
 
     return jsonify({"addresses": addresses}), 200
 
@@ -457,6 +457,7 @@ def edit_address(address_id):
         return jsonify({"error": "This account is inactive."}), 403
 
     data = request.get_json()
+
     if not isinstance(data , dict):
         return jsonify({"error": "JSON body must be an object."}), 400
 
@@ -506,6 +507,31 @@ def edit_address(address_id):
 
     db.session.commit()
     return jsonify({"success": "You address has been updated"}) , 200
+
+
+@app.route("/addresses/<int:address_id>", methods=['DELETE'])
+@jwt_required()
+def delete_address(address_id):
+
+    user_id = int(get_jwt_identity())
+    user = db.session.get(User, user_id)
+
+    if not user:
+        return jsonify({"error": "This user does not exist!"}), 404
+
+    if user.status != "active":
+        return jsonify({"error": "This account is inactive."}), 403
+
+    address = db.session.scalar(db.select(Address).where(Address.id == address_id, Address.user_id == user_id))
+
+    if not address:
+        return jsonify({"error": "There is no address with that ID"}), 404
+
+    db.session.delete(address)
+    db.session.commit()
+
+    return jsonify({"success": "Your address has been deleted successfully."}), 200
+
 
 
 
