@@ -1,6 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import Mapped, mapped_column
-from flask_login import UserMixin
+from sqlalchemy import ForeignKey
 
 db = SQLAlchemy()
 
@@ -20,5 +20,18 @@ class RevokedToken(db.Model):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     jti: Mapped[str] = mapped_column(unique=True, nullable=False)
+
+class Address(db.Model):
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"),nullable=False)
+    name: Mapped[str] = mapped_column(nullable=False)
+    last_name: Mapped[str] = mapped_column(nullable=False)
+    street_name: Mapped[str] = mapped_column(nullable=False)
+    street_number: Mapped[str] = mapped_column(nullable=False)
+    country: Mapped[str] = mapped_column(nullable=False)
+    postal_code: Mapped[str] = mapped_column(nullable=False)
+    city: Mapped[str] = mapped_column(nullable=False)
+    phone_number: Mapped[str] = mapped_column(nullable=False)
 
 
