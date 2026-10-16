@@ -2,6 +2,9 @@ from flask import Flask, render_template, request, redirect, url_for, jsonify
 from flask_sqlalchemy import SQLAlchemy
 import os
 from dotenv import load_dotenv
+import requests
+
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 
 # IMPORTING MODULE FOR DATE, TIME
 import datetime
@@ -29,6 +32,10 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.getenv("SECRET_KEY")
 app.config['JWT_SECRET_KEY'] =os.getenv("JWT_SECRET_KEY")
 
+NOTIFICATION_SERVICE_URL = os.getenv("NOTIFICATION_SERVICE_URL")
+
+serializer = URLSafeTimedSerializer(app.config["SECRET_KEY"])
+
 db.init_app(app)
 
 jwt = JWTManager(app)
@@ -51,7 +58,7 @@ with app.app_context():
 @app.route("/login", methods=['POST'])
 def login():
 
-    data = request.get_json()
+    data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
         return jsonify({"error": "JSON body must be an object."}), 400
@@ -74,6 +81,11 @@ def login():
     if user_exists.status != "active":
         return jsonify({"error": "This account is inactive."}), 403
 
+    if not user_exists.email_verified:
+        return jsonify({
+            "error": "Please verify your email address before logging in."
+        }), 403
+
     access_token = create_access_token(
         identity=str(user_exists.id),
         additional_claims={"role": user_exists.role}
@@ -87,7 +99,7 @@ def login():
 @app.route("/register", methods=['POST'])
 def register():
 
-    data = request.get_json()
+    data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
         return jsonify({"error": "JSON body must be an object."}), 400
@@ -129,17 +141,81 @@ def register():
         db.session.add(new_user)
         db.session.commit()
 
-        return jsonify({"success": "You have successfully registered."}), 201
+        verification_token = serializer.dumps(
+            new_user.email,
+            salt="email-verification"
+        )
+
+        verification_url = (
+            f"http://127.0.0.1:5005/verify-email"
+            f"?token={verification_token}"
+        )
+
+        try:
+            response = requests.post(
+                f"{NOTIFICATION_SERVICE_URL}/send-verification-email",
+                json={
+                    "email": new_user.email,
+                    "verification_url": verification_url
+                },
+                timeout=5
+            )
+
+            response.raise_for_status()
+
+        except requests.RequestException:
+            return jsonify({
+                "success": "You have successfully registered.",
+                "warning": "Your account was created, but the verification email could not be sent."
+            }), 201
+
+        return jsonify({
+            "success": "You have successfully registered. Please check your email to verify your account."
+        }), 201
 
 
     else:
         return jsonify({"error": "You need to enter all fields"}), 400
+
+
+@app.route("/verify-email", methods=['GET'])
+def verify_email():
+    token = request.args.get("token")
+
+    if not token:
+        return jsonify({"error": "Verification token is required."}) , 400
+
+    try:
+        email = serializer.loads(
+            token,
+            salt="email-verification",
+            max_age=3600,
+        )
+    except SignatureExpired:
+        return jsonify({"error": "Verification token has expired."}) , 400
     
+    except BadSignature:
+        return jsonify({"error": "Invalid verification token."}) , 400
+
+    user = db.session.scalar(db.select(User).where(User.email == email))
+
+    if not user:
+        return jsonify({"error": "User not found."}), 404
+
+    if user.email_verified:
+        return jsonify({"message": "Your email address is already verified."}), 200
+
+    user.email_verified = True
+    db.session.commit()
+
+    return jsonify({
+        "success": "Your email address has been verified successfully."
+    }), 200
 
 @app.route("/logout", methods=["POST"])
 @jwt_required(refresh=True)
 def logout():
-    data = request.get_json()
+    data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
         return jsonify({"error": "JSON body must be an object."}), 400
@@ -192,7 +268,7 @@ def change_password():
 
     # DODATI RUCNU VALIDACIJU SIFRE DA NE BI KORISNIK PREKO JSON-A DIREKTNO POSLAO PODATKE OVOJ RUTI 
 
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
 
     user_exists = db.session.scalar(db.select(User).where(User.id == user_id))
 
@@ -202,7 +278,7 @@ def change_password():
     if user_exists.status != "active":
         return jsonify({"error": "This user profile is not active"}), 403
 
-    data = request.get_json()
+    data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
         return jsonify({"error": "JSON body must be an object."}), 400
@@ -274,7 +350,7 @@ def profile():
 @app.route("/edit-profile", methods=["PATCH"])
 @jwt_required()
 def edit_profile():
-    data = request.get_json()
+    data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
         return jsonify({"error": "JSON body must be an object."}), 400
@@ -341,7 +417,7 @@ def deactivate_account():
     if not user:
         return jsonify({"error": "This user does not exist!"}), 404
 
-    data = request.get_json()
+    data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
         return jsonify({"error": "JSON body must be an object."}), 400
@@ -376,7 +452,7 @@ def add_address():
     if user.status != "active":
         return jsonify({"error": "This account is inactive."}), 403
 
-    data = request.get_json()
+    data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
         return jsonify({"error": "JSON body must be an object."}), 400
@@ -410,7 +486,7 @@ def add_address():
 
 @app.route("/addresses", methods=['GET'])
 @jwt_required()
-def show_adresses():
+def show_addresses():
 
     user_id = int(get_jwt_identity())
     user = db.session.get(User, user_id)
@@ -439,7 +515,7 @@ def show_adresses():
     ]
 
     if not addresses:
-        return jsonify({"addresses": []}), 200
+        return jsonify({"addresses": addresses}), 200
 
     return jsonify({"addresses": addresses}), 200
 
@@ -456,7 +532,7 @@ def edit_address(address_id):
     if user.status != "active":
         return jsonify({"error": "This account is inactive."}), 403
 
-    data = request.get_json()
+    data = request.get_json(silent=True)
 
     if not isinstance(data , dict):
         return jsonify({"error": "JSON body must be an object."}), 400
@@ -506,7 +582,7 @@ def edit_address(address_id):
         old_address.phone_number = data.get("phone_number").strip()
 
     db.session.commit()
-    return jsonify({"success": "You address has been updated"}) , 200
+    return jsonify({"success": "Your address has been updated successfully."}), 200
 
 
 @app.route("/addresses/<int:address_id>", methods=['DELETE'])
