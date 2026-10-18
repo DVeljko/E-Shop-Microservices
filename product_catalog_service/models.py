@@ -25,3 +25,9 @@ class Product(db.Model):
     is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
     is_featured: Mapped[bool] = mapped_column(nullable=False, default=False)
 
+class ProductCategory(db.Model):
+
+    product_id: Mapped[int] = mapped_column(ForeignKey("product.id"), primary_key=True)
+
+    category_id: Mapped[int] = mapped_column(ForeignKey("category.id"), primary_key=True)
+
