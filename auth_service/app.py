@@ -33,6 +33,7 @@ app.config['SECRET_KEY'] = os.getenv("SECRET_KEY")
 app.config['JWT_SECRET_KEY'] =os.getenv("JWT_SECRET_KEY")
 
 NOTIFICATION_SERVICE_URL = os.getenv("NOTIFICATION_SERVICE_URL")
+AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL")
 
 serializer = URLSafeTimedSerializer(app.config["SECRET_KEY"])
 
@@ -147,7 +148,7 @@ def register():
         )
 
         verification_url = (
-            f"http://127.0.0.1:5005/verify-email"
+            f"{AUTH_SERVICE_URL}/verify-email"
             f"?token={verification_token}"
         )
 
@@ -608,10 +609,97 @@ def delete_address(address_id):
 
     return jsonify({"success": "Your address has been deleted successfully."}), 200
 
+@app.route("/forgot-password", methods=['POST'])
+def forgot_password():
+
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    email = data.get('email')
+    email_exists = db.session.scalar(db.select(User).where(User.email == email))
+
+    if not email_exists:
+        return jsonify({"error": "User with that email does not exist"}), 400
+
+    reset_token = serializer.dumps(email_exists.email, salt="reset-password")
+
+    reset_url = (
+        f"{AUTH_SERVICE_URL}/reset-password"
+        f"?token={reset_token}"
+    )
+
+    try:
+        response = requests.post(
+            f"{NOTIFICATION_SERVICE_URL}/send-password-reset-email",
+            json={
+                "email": email_exists.email,
+                "reset_url": reset_url
+            },timeout=5
+        )
+
+        response.raise_for_status()
+
+    except requests.RequestException:
+        return jsonify({"error": "Password reset email could not be sent. Please try again later."}), 503
+
+    return jsonify({"success": "Password reset email has been sent successfully."}), 200
 
 
 
+@app.route("/reset-password", methods=['POST'])
+def reset_password():
 
+    token = request.args.get("token")
+
+    if not token:
+        return jsonify({"error": "Reset token is required."}), 400
+    
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    new_password = data.get("new_password")
+    confirm_new_password = data.get("confirm_new_password")
+
+    if not isinstance(new_password, str) or not new_password.strip():
+        return jsonify({"error": "New password is required and must be a string."}), 400
+
+    if not isinstance(confirm_new_password, str) or not confirm_new_password.strip():
+        return jsonify({"error": "Confirm new password is required and must be a string."}), 400
+
+    if new_password != confirm_new_password:
+        return jsonify({"error": "Passwords do not match."}), 400
+
+    try:
+        email = serializer.loads(
+            token,
+            salt="reset-password",
+            max_age=3600
+        )
+
+    except SignatureExpired:
+        return jsonify({"error": "Reset token has expired."}) , 400
+    
+    except BadSignature:
+        return jsonify({"error": "Invalid reset token."}) , 400
+
+    user = db.session.scalar(db.select(User).where(User.email == email))
+
+    if not user:
+        return jsonify({"error": "There is no user with this email."}), 400
+
+
+    user.password = generate_password_hash(new_password)
+    db.session.commit()
+
+    return jsonify({"success": "Your password has been reset successfully."}), 200
+
+
+
+    
 
 
 

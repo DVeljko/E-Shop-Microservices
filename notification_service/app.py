@@ -23,7 +23,7 @@ def verify_email_registration():
     data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
-        return jsonify({"error": "JSON body must be an object,"}), 400
+        return jsonify({"error": "JSON body must be an object."}), 400
 
     email = data.get("email")
     verification_url = data.get("verification_url")
@@ -44,7 +44,41 @@ def verify_email_registration():
 
     return jsonify({"success": "Verification email has been sent."}), 200
 
+@app.route("/send-password-reset-email", methods=['POST'])
+def send_password_reset():
+    data = request.get_json(silent=True)
 
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    email = data.get('email')
+    reset_url = data.get('reset_url')
+
+    if not isinstance(email, str) or not email.strip():
+        return jsonify({
+            "error": "Email is required and must be a string."
+        }), 400
+
+    if not isinstance(reset_url, str) or not reset_url.strip():
+        return jsonify({
+            "error": "Reset URL is required and must be a string."
+        }), 400
+
+    email = email.strip()
+    reset_url = reset_url.strip()
+
+    message = Message(
+        subject="Reset your password",
+        recipients=[email],
+        body=f"Click this link to reset your password:\n{reset_url}"
+    )
+
+    try:
+        mail.send(message)
+    except Exception:
+        return jsonify({"error": "Email could not be sent"}), 500
+
+    return jsonify({"success": "Password reset email has been sent successfully."}), 200
 
 
 
