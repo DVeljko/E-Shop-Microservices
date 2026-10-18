@@ -6,6 +6,9 @@ import requests
 
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 
+# IMPORT FLASK-MIGRATE FOR FUTURE MODLES AND ADJUSTMENT
+from flask_migrate import Migrate
+
 # IMPORTING MODULE FOR DATE, TIME
 import datetime
 
@@ -39,6 +42,7 @@ serializer = URLSafeTimedSerializer(app.config["SECRET_KEY"])
 
 db.init_app(app)
 
+migrate = Migrate(app, db)
 jwt = JWTManager(app)
 
 @jwt.token_in_blocklist_loader
@@ -51,9 +55,6 @@ def check_if_token_revoked(jwt_header, jwt_payload):
     )
     
     return token is not None
-
-with app.app_context():
-    db.create_all()
 
 
 @app.route("/login", methods=['POST'])
