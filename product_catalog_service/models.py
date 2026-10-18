@@ -31,3 +31,11 @@ class ProductCategory(db.Model):
 
     category_id: Mapped[int] = mapped_column(ForeignKey("category.id"), primary_key=True)
 
+
+class ProductImage(db.Model):
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("product.id"), nullable=False)
+    image_url: Mapped[str] = mapped_column(nullable=False)
+    is_primary: Mapped[bool] = mapped_column(nullable=False, default=False)
+    position: Mapped[int] = mapped_column(nullable=False, default=0)
