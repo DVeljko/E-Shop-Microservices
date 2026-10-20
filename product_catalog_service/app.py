@@ -63,6 +63,23 @@ def create_category():
 
     return jsonify({"success": "Successfully created new category."}), 201
 
+@app.route("/categories", methods=['GET'])
+def show_all_categories():
+
+    categories = Category.query.filter_by(is_active=True).all()
+
+    data = [{
+        "category_id": category.id,
+        "names": category.name,
+        "category_parent_id": category.parent_id,
+    } 
+
+        for category in categories
+    
+    ]
+
+    return jsonify(data), 200
+
 
 
 if __name__ == "__main__":
