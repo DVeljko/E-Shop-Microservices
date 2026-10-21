@@ -163,7 +163,83 @@ def delete_category(category_id):
     return jsonify({"success": "Successfully deleted category"}), 200
 
 
+# PRODUCTS
 
+@app.route("/products", methods=["POST"])
+@jwt_required()
+def add_product():
+
+    claim = get_jwt()
+    role = claim.get("role")
+
+    if role != "admin":
+        return jsonify({"error": "Only admin can access"}), 403
+
+    data = request.get_json()
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    name = data.get("name")
+    description = data.get("description")
+    price = data.get("price")
+    is_featured = data.get("is_featured")
+    category_ids = data.get("category_ids")
+
+    if not isinstance(name, str) or not name.strip():
+        return jsonify({"error": "You need to enter a string and not empty field"}), 400
+
+    name = name.strip()
+
+    products_exist = db.session.scalar(db.select(Product).where(Product.name == name))
+
+    if products_exist:
+        return jsonify({"error": "Product with that name already exists."}), 409
+
+    if not isinstance(description, str) or not description.strip():
+        return jsonify({"error": "Description must be a non-empty string."}), 400
+
+    if not isinstance(category_ids, list):
+        return jsonify({"error": "Category IDS needs to be a list."}), 400
+
+    categories = []
+
+    for id in category_ids:
+        if not isinstance(id, int) or isinstance(id, bool):
+            return jsonify({"error": "Each category ID must be an integer."}), 400
+
+        category_exists = db.session.scalar(db.select(Category).where(Category.id == id))
+
+        if not category_exists:
+            return jsonify({"error": "Category or subcategory does not exist."}), 404
+
+        if category_exists not in categories:
+            categories.append(category_exists)
+
+    if not isinstance(price, (float, int)) or isinstance(price, bool):
+        return jsonify({"error": "Price needs to be float or integer."}), 400
+
+    if price <= 0:
+        return jsonify({"error": "Price needs to be bigger than zero."}), 400
+    
+    if not isinstance(is_featured, bool):
+        return jsonify({"error": "Is featured needs to be a bool."}), 400
+
+    new_product = Product(
+        name=name,
+        description=description.strip(),
+        price=price,
+        is_featured=is_featured,
+    )
+
+    new_product.categories = categories
+
+    db.session.add(new_product)
+    db.session.commit()
+
+    return jsonify({"success": "You have successfully added new product"}), 201
+    
+
+    
 
 if __name__ == "__main__":
     app.run(debug=True)
