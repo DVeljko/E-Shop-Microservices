@@ -80,6 +80,67 @@ def show_all_categories():
 
     return jsonify(data), 200
 
+@app.route("/categories/<int:category_id>", methods=['PATCH'])
+@jwt_required()
+def edit_category(category_id):
+
+    claim = get_jwt()
+    role = claim.get("role")
+
+    if role != "admin":
+        return jsonify({"error": "Only admin can access"}), 403
+    
+    category = db.session.scalar(db.select(Category).where(Category.id == category_id))
+
+    if not category:
+        return jsonify({"error": "Category with this ID does not exist!"}), 404
+
+    data = request.get_json()
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+
+    name = data.get("name")
+    parent_id = data.get("parent_id")
+
+    if "name" in data:
+        if not isinstance(name , str) or not name.strip():
+            return jsonify({"error": "You need to enter name as a string and not empty field"}), 400
+
+        name = name.strip()
+
+        name_exists = db.session.scalar(db.select(Category).where(Category.name == name, Category.id != category_id))
+
+        if name_exists:
+            return jsonify({"error": "There is already a category with that name!"}), 409
+
+        category.name = name
+
+    if "parent_id" in data:
+        parent_id = data["parent_id"]
+
+        if parent_id is not None:
+            if not isinstance(parent_id, int) or isinstance(parent_id, bool):
+                return jsonify({"error": "Parent ID must be an integer or null."}), 400
+
+            if parent_id == category.id:
+                return jsonify({"error": "A category cannot be its own parent."}), 400
+
+            parent = db.session.get(Category, parent_id)
+
+            if parent is None:
+                return jsonify({"error": "Parent category not found."}), 404
+
+        category.parent_id = parent_id
+
+
+    db.session.commit()
+    return jsonify({"success": "Category has been updated successfully."}), 200
+
+
+
+
 
 
 if __name__ == "__main__":
