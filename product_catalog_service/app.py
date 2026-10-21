@@ -139,6 +139,28 @@ def edit_category(category_id):
     return jsonify({"success": "Category has been updated successfully."}), 200
 
 
+@app.route("/categories/<int:category_id>", methods=['DELETE'])
+@jwt_required()
+def delete_category(category_id):
+
+    claim = get_jwt()
+    role = claim.get("role")
+
+    if role != "admin":
+        return jsonify({"error": "Only admin can access"}), 403
+
+    category = db.session.scalar(db.select(Category).where(Category.id == category_id))
+
+    if not category:
+        return jsonify({"error": "There is no category with that ID"}), 404
+
+    if category.subcategories or category.products:
+        return jsonify({"error": "Cannot delete a category with subcategories or products."}) , 409
+
+    db.session.delete(category)
+    db.session.commit()
+
+    return jsonify({"success": "Successfully deleted category"}), 200
 
 
 
