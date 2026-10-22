@@ -347,6 +347,26 @@ def edit_product(product_id):
 
     return jsonify({"success": "You have successfully updated product."}), 200
 
+@app.route("/products/<int:product_id>", methods=['DELETE'])
+@jwt_required()
+def delete_product(product_id):
+
+    claim = get_jwt()
+    role = claim.get('role')
+
+    if role != "admin":
+        return jsonify({"error": "Only admin can access."}), 403
+
+    product_exists = db.session.scalar(db.select(Product).where(Product.id == product_id))
+    if not product_exists:
+        return jsonify({"error": "Product with that ID does not exist."}), 404
+
+
+    db.session.delete(product_exists)
+    db.session.commit()
+
+    return jsonify({"success": "You have successfully deleted a product."}), 200
+
 
 
 
