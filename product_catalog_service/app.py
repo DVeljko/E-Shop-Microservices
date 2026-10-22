@@ -369,6 +369,25 @@ def delete_product(product_id):
 
 
 
+@app.route("/products/<int:product_id>" , methods=['GET'])
+def show_single_product(product_id):
+
+    product_exists = db.session.scalar(db.select(Product).where(Product.id == product_id))
+    if not product_exists or not product_exists.is_active:
+        return jsonify({"error": "Product not found"}), 404
+
+    data = {
+        "id": product_exists.id,
+        "name": product_exists.name,
+        "description": product_exists.description,
+        "price": product_exists.price,
+        "sale_price": product_exists.sale_price,
+        "is_active": product_exists.is_active,
+        "is_featured": product_exists.is_featured
+    }
+
+    return jsonify(data), 200
+
 
 if __name__ == "__main__":
     app.run(debug=True)
