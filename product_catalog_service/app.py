@@ -259,9 +259,96 @@ def show_all_products():
     ]
 
     return jsonify(data), 200
-    
 
-    
+@app.route("/products/<int:product_id>", methods=['PATCH'])
+@jwt_required()
+def edit_product(product_id):
+
+    claim = get_jwt()
+    role = claim.get("role")
+
+    if role != "admin":
+        return jsonify({"error": "Only admin can access."}), 403
+
+    product = db.session.scalar(db.select(Product).where(Product.id == product_id))
+
+    if not product:
+        return jsonify({"error": "Product with this ID does not exist."}), 404
+
+    data = request.get_json()
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    if "name" in data:
+        new_name = data.get("name")
+        if not isinstance(new_name, str) or not new_name.strip():
+            return jsonify({"error": "You need to enter an string and not empty field."}), 400
+
+
+        new_name = new_name.strip()
+        new_name_exists = db.session.scalar(db.select(Product).where(Product.name == new_name, Product.id != product_id))
+        if new_name_exists:
+            return jsonify({"error": "Product with that name already exists."}), 409
+
+        product.name = new_name
+
+    if "description" in data:
+        new_description = data.get("description")
+        if not isinstance(new_description, str) or not new_description.strip():
+            return jsonify({"error": "You need to enter an string and not empty field."}), 400
+
+        product.description = new_description.strip()
+
+    if "price" in data:
+        new_price = data.get("price")
+        if not isinstance(new_price, (int, float)) or isinstance(new_price, bool):
+            return jsonify({"error": "The price needs to be an intger or float number."}) , 400
+
+        if new_price <= 0:
+            return jsonify({"error": "The price needs to be higher than 0."}), 400
+        
+        product.price = new_price
+
+    if "sale_price" in data:
+        new_sale_price = data.get("sale_price")
+
+        if new_sale_price is not None:
+            if not isinstance(new_sale_price, (int, float)) or isinstance(new_sale_price, bool):
+                return jsonify({"error": "The sale price needs to be an integer or float number. "}) , 400
+
+
+        product.sale_price = new_sale_price
+
+    if "is_active" in data:
+        new_is_active = data.get("is_active")  
+        if not isinstance(new_is_active, bool):
+            return jsonify({"error": "Active status needs to be a boolen."}), 400
+
+        product.is_active = new_is_active
+
+
+
+    if "is_featured" in data:
+        new_is_featured = data.get("is_featured")
+        if not isinstance(new_is_featured, bool):
+            return jsonify({"error": "Featured status needs to be an boolean."}), 400
+
+        
+        product.is_featured = new_is_featured
+
+
+    if product.sale_price is not None:
+        if product.sale_price <= 0 or product.sale_price >= product.price:
+            return jsonify({
+                "error": "Sale price must be greater than zero and less than the regular price."
+            }), 400
+
+    db.session.commit()
+
+    return jsonify({"success": "You have successfully updated product."}), 200
+
+
+
 
 if __name__ == "__main__":
     app.run(debug=True)
