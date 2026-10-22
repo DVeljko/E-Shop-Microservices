@@ -237,6 +237,28 @@ def add_product():
     db.session.commit()
 
     return jsonify({"success": "You have successfully added new product"}), 201
+
+@app.route("/products" , methods=['GET'])
+def show_all_products():
+
+    products = Product.query.filter_by(is_active=True).all()
+
+    data = [
+        {
+            "id": product.id,
+            "name": product.name,
+            "description": product.description,
+            "price": product.price,
+            "sale_price": product.sale_price,
+            "is_featured": product.is_featured
+
+        }
+
+
+        for product in products
+    ]
+
+    return jsonify(data), 200
     
 
     
