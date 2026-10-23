@@ -374,7 +374,7 @@ def show_single_product(product_id):
 
     product_exists = db.session.scalar(db.select(Product).where(Product.id == product_id))
     if not product_exists or not product_exists.is_active:
-        return jsonify({"error": "Product not found"}), 404
+        return jsonify({"error": "Product not found."}), 404
 
     data = {
         "id": product_exists.id,
@@ -388,6 +388,70 @@ def show_single_product(product_id):
 
     return jsonify(data), 200
 
+@app.route("/products/<int:product_id>/images", methods=['POST'])
+@jwt_required()
+def add_image_to_product(product_id):
+
+    claim = get_jwt()
+    role = claim.get("role")
+
+    if role != "admin":
+        return jsonify({"error": "Only Admin can access."}), 403
+
+    product_exists = db.session.scalar(db.select(Product).where(Product.id == product_id))
+    if not product_exists:
+        return jsonify({"error": "Product not found."}), 404
+
+    data = request.get_json()
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    if "image_url" not in data:
+        return jsonify({"error": "Image URL is required."}), 400
+
+    image_url = data.get("image_url")
+    if not isinstance(image_url, str) or not image_url.strip():
+        return jsonify({"error": "You need to enter a string and not empy field."}), 400
+
+    image_url = image_url.strip()
+
+    if "is_primary" not in data:
+        return jsonify({"error": "Is primary is required."}), 400
+
+    is_primary = data.get("is_primary")
+    if not isinstance(is_primary, bool):
+        return jsonify({"error": "Is primary must be a boolean"}), 400
+
+    if "position" not in data:
+        return jsonify({"error": "Position is required"}), 400
+
+    position = data.get("position")
+    if not isinstance(position, int) or isinstance(position, bool):
+        return jsonify({"error": "Position needs to be an integer."}), 400
+
+    if position < 0:
+        return jsonify({"error": "Position cant be an negative number."}), 400
+
+
+    if is_primary:
+        primary_exists = db.session.scalar(db.select(ProductImage).where(ProductImage.product_id == product_id, ProductImage.is_primary == is_primary))
+
+        if primary_exists:
+            return jsonify({"error": "This product already has an primary image."}), 409
+
+
+    new_image = ProductImage(
+        product_id=product_id,
+        image_url=image_url,
+        is_primary=is_primary,
+        position=position
+    )
+
+    db.session.add(new_image)
+    db.session.commit()
+
+    return jsonify({"success": " You have successfully added a new image for product."}) , 201
+    
 
 if __name__ == "__main__":
     app.run(debug=True)
