@@ -517,5 +517,27 @@ def edit_product_image(product_id, image_id):
     db.session.commit()
     return jsonify({"success": "You have successfully updated product image."}), 200
 
+
+@app.route("/products/<int:product_id>/images/<int:image_id>", methods=['DELETE'])
+@jwt_required()
+def delete_product_image(product_id, image_id):
+
+    claim = get_jwt()
+    role = claim.get("role")
+
+    if role != "admin":
+        return jsonify({"error": " Only Admin can access."}), 403
+
+    image_exist = db.session.scalar(db.select(ProductImage).where(ProductImage.product_id == product_id, ProductImage.id == image_id))
+    if not image_exist:
+        return jsonify({"error": "Image not found"}), 404
+
+    db.session.delete(image_exist)
+    db.session.commit()
+
+    return jsonify({"success": "Image has been successfully deleted."}), 200
+    
+
+
 if __name__ == "__main__":
     app.run(debug=True)
