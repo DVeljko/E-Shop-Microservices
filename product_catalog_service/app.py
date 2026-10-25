@@ -560,6 +560,72 @@ def delete_product_image(product_id, image_id):
     db.session.commit()
 
     return jsonify({"success": "Image has been successfully deleted."}), 200
+
+
+@app.route("/products/<int:product_id>/variants", methods=['POST'])
+@jwt_required()
+def add_product_variant(product_id):
+
+    claim = get_jwt()
+    role = claim.get("role")
+
+    if role != "admin":
+        return jsonify({"error": "Only admin can access."}) , 403
+
+    product_exists = db.session.scalar(db.select(Product).where(Product.id == product_id))
+
+    if not product_exists:
+        return jsonify({"error": "Product not found."}), 404
+
+    data = request.get_json()
+
+    if not isinstance(data , dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    if "sku" not in data:
+        return jsonify({"error": "Sku is required."}), 400
+
+    sku = data.get("sku")
+    if not isinstance(sku, str) or not sku.strip():
+        return jsonify({"error": "Sku needs to be a string and not empty field."}), 400
+
+    sku = sku.strip()
+
+    sku_exists = db.session.scalar(db.select(ProductVariant).where(ProductVariant.sku == sku))
+    if sku_exists:
+        return jsonify({"error": "A variant with this SKU already exists."}), 409
+
+    if "attributes" not in data:
+        return jsonify({"error": "Attributes is required."}), 400
+
+    attributes = data.get("attributes")
+    if not isinstance(attributes, dict):
+        return jsonify({"error": "Attributes must be an object."}), 400
+
+    price = data.get("price")
+
+    if price is not None:
+        if not isinstance(price, (int, float)) or  isinstance(price, bool):
+            return jsonify({"error": "Price must be an number."}), 400
+
+        if price <= 0:
+            return jsonify({"error": "Price must be greater than zero."}), 400
+
+    new_variant = ProductVariant(
+        product_id=product_id,
+        sku=sku,
+        attributes=attributes,
+        price=price
+    )
+
+    db.session.add(new_variant)
+    db.session.commit()
+
+    return jsonify({"success": "You have successfully added a new variant."}), 201
+
+        
+    
+
     
 
 
