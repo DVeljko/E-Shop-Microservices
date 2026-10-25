@@ -451,7 +451,71 @@ def add_image_to_product(product_id):
     db.session.commit()
 
     return jsonify({"success": " You have successfully added a new image for product."}) , 201
-    
+
+
+@app.route("/products/<int:product_id>/images/<int:image_id>", methods=['PATCH'])
+@jwt_required()
+def edit_product_image(product_id, image_id):
+
+    claim = get_jwt()
+    role = claim.get('role')
+
+    if role != "admin":
+        return jsonify({"error": "Only Admin can access."}), 403
+
+    data = request.get_json()
+
+    if not isinstance(data , dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    product_exits = db.session.scalar(db.select(Product).where(Product.id == product_id))
+    if not product_exits:
+        return jsonify({"error": "Product not found."}) , 404
+
+    image_exists = db.session.scalar(db.select(ProductImage).where(ProductImage.product_id == product_id,ProductImage.id == image_id))
+    if not image_exists: 
+        return jsonify({"error": "Image not found."}), 404
+
+    if "image_url" in data:
+        new_image_url = data.get("image_url")
+        if not isinstance(new_image_url, str) or not new_image_url.strip():
+            return jsonify({"error": "Image URL needs to be an string and not empty field."}), 400   
+
+        new_image_url = new_image_url.strip()
+        image_exists.image_url = new_image_url
+
+    if "is_primary" in data:
+        new_is_primary = data.get("is_primary")
+
+        if not isinstance(new_is_primary, bool):
+            return jsonify({"error": "is_primary must be a boolean."}), 400
+
+        if new_is_primary:
+            primary_exists = db.session.scalar(
+                db.select(ProductImage).where(
+                    ProductImage.product_id == product_id,
+                    ProductImage.is_primary == True,
+                    ProductImage.id != image_id
+                )
+            )
+
+            if primary_exists:
+                primary_exists.is_primary = False
+
+        image_exists.is_primary = new_is_primary
+
+    if "position" in data:
+        new_position = data.get("position")
+        if not isinstance(new_position, int) or isinstance(new_position, bool):
+            return jsonify({"error": "Position needs to be an integer."}) , 400
+
+        if new_position < 0:
+            return jsonify({"error": "You cant enter an negative number as position."}), 400
+
+        image_exists.position = new_position
+
+    db.session.commit()
+    return jsonify({"success": "You have successfully updated product image."}), 200
 
 if __name__ == "__main__":
     app.run(debug=True)
