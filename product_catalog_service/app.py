@@ -518,6 +518,30 @@ def edit_product_image(product_id, image_id):
     return jsonify({"success": "You have successfully updated product image."}), 200
 
 
+@app.route("/products/<int:product_id>/images", methods=['GET'])
+def show_all_product_images(product_id):
+
+    product_exist = db.session.scalar(db.select(Product).where(Product.id == product_id,Product.is_active == True))
+    if not product_exist:
+        return jsonify({"error": "Product not found."}), 404
+
+    images = sorted(
+        product_exist.images,
+        key=lambda image: (image.position, image.id)
+    )
+
+    images = [
+        {
+            "id": image.id,
+            "image_url": image.image_url,
+            "is_primary": image.is_primary,
+            "position": image.position
+        }
+        for image in images
+    ]
+
+    return jsonify(images), 200
+
 @app.route("/products/<int:product_id>/images/<int:image_id>", methods=['DELETE'])
 @jwt_required()
 def delete_product_image(product_id, image_id):

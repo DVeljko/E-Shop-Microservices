@@ -127,7 +127,6 @@ def register():
         if email_exists:
             return jsonify({"error": "User with this email exists"}), 409
 
-        # CREATE EMAIL VERIFICATION LATER
 
         if password != confirm_password:
             return jsonify({"error": "Passwords do not match"}) , 400
