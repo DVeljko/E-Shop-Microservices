@@ -701,7 +701,7 @@ def edit_product_variant(product_id, variant_id):
                 return jsonify({"error": "Price must be greater than zero."}), 400
 
         variant_exists.price = new_price
-        
+
     if "is_active" in data:
         new_is_active = data.get("is_active")
         if not isinstance(new_is_active, bool):
@@ -711,6 +711,33 @@ def edit_product_variant(product_id, variant_id):
 
     db.session.commit()
     return jsonify({"success": " You have successfully updated product variant."}), 200
+
+
+@app.route("/products/<int:product_id>/variants/<int:variant_id>", methods=['DELETE'])
+@jwt_required()
+def delete_product_variant(product_id, variant_id):
+
+    claim = get_jwt()
+    role = claim.get("role")
+
+    if role != "admin":
+        return jsonify({"error": "Only admin can access."}), 403
+
+    product_exists = db.session.scalar(db.select(Product).where(Product.id == product_id))
+
+    if not product_exists:
+        return jsonify({"error": "Product not found."}), 404
+
+    variant_exists = db.session.scalar(db.select(ProductVariant).where(ProductVariant.id == variant_id, ProductVariant.product_id == product_id))
+
+    if not variant_exists:
+        return jsonify({"error": "Variant not found."}), 404
+
+    db.session.delete(variant_exists)
+    db.session.commit()
+
+    return jsonify({"success": "You have successfully deleted a product variant."}), 200
+
 
     
 
