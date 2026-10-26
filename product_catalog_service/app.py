@@ -4,6 +4,8 @@ from models import db, Category, Product, ProductCategory, ProductImage, Product
 import os
 from dotenv import load_dotenv
 from flask_jwt_extended import JWTManager, jwt_required, get_jwt
+from decimal import Decimal, InvalidOperation
+from sqlalchemy import func
 
 
 load_dotenv()
@@ -743,11 +745,14 @@ def search_product():
 
     search = request.args.get("search", "").strip()
     category_id = request.args.get("category_id")
+    min_price = request.args.get("min_price")
+    max_price = request.args.get("max_price")
 
     query = db.select(Product).where(Product.is_active == True)
 
     if search:
         query = query.where(Product.name.ilike(f"%{search}%"))
+
 
     if category_id is not None:
         try:
@@ -760,6 +765,47 @@ def search_product():
         query = query.where(
             Product.categories.any(Category.id == category_id)
         )
+
+    if min_price is not None:
+        try:
+            min_price = Decimal(min_price)
+        except InvalidOperation:
+            return jsonify({
+                "error": "min_price must be a number."
+            }), 400
+
+        if not min_price.is_finite() or min_price < 0:
+            return jsonify({
+                "error": "min_price must be a finite number greater than or equal to zero."
+            }), 400
+
+    if max_price is not None:
+        try:
+            max_price = Decimal(max_price)
+        except InvalidOperation:
+            return jsonify({
+                "error": "max_price must be a number."
+            }), 400
+
+        if not max_price.is_finite() or max_price < 0:
+            return jsonify({
+                "error": "max_price must be a finite number greater than or equal to zero."
+            }), 400
+
+    if min_price is not None and max_price is not None:
+        if min_price > max_price:
+            return jsonify({
+                "error": "min_price cannot be greater than max_price."
+            }), 400
+
+    effective_price = func.coalesce(Product.sale_price, Product.price)
+
+    if min_price is not None:
+        query = query.where(effective_price >= min_price)
+
+    if max_price is not None:
+        query = query.where(effective_price <= max_price)
+
 
     products = db.session.scalars(query).all()
 
@@ -777,7 +823,6 @@ def search_product():
     ]
 
     return jsonify(data), 200
-
 
 
     
