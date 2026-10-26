@@ -738,6 +738,55 @@ def delete_product_variant(product_id, variant_id):
 
     return jsonify({"success": "You have successfully deleted a product variant."}), 200
 
+@app.route("/products", methods=['GET'])
+def search_product():
+
+    search = request.args.get("search")
+    if not search:
+        all_products = db.session.scalars(db.select(Product).where(Product.is_active == True)).all()
+
+        data = [
+            {
+                "id": product.id,
+                "name": product.name,
+                "description": product.description,
+                "price": product.price,
+                "sale_price": product.sale_price,
+                "is_active": product.is_active,
+                "is_featured": product.is_featured
+            }
+
+            for product in all_products
+
+        ]
+
+        return jsonify(data), 200
+
+
+    products = db.session.scalars(db.select(Product).where(Product.is_active == True, Product.name.ilike(f"%{search}%"))).all()
+
+    data = [
+        {
+            "id": product.id,
+            "name": product.name,
+            "description": product.description,
+            "price": product.price,
+            "sale_price": product.sale_price,
+            "is_active": product.is_active,
+            "is_featured": product.is_featured
+        }
+
+        for product in products
+
+    ]
+
+    return jsonify(data), 200
+
+
+
+
+    
+
 
     
 
