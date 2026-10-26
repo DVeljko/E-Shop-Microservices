@@ -623,8 +623,29 @@ def add_product_variant(product_id):
 
     return jsonify({"success": "You have successfully added a new variant."}), 201
 
-        
-    
+
+@app.route("/products/<int:product_id>/variants")
+def show_product_variants(product_id):
+
+    product_exists = db.session.scalar(db.select(Product).where(Product.id == product_id, Product.is_active == True))
+    if not product_exists:
+        return jsonify({"error": "Product not found."}), 404
+
+    active_variants = db.session.scalars(db.select(ProductVariant).where(ProductVariant.product_id == product_id, ProductVariant.is_active == True)).all()
+    if not active_variants:
+        return jsonify([]), 200
+
+    data = [
+        {
+            "id": variant.id,
+            "sku": variant.sku,
+            "attributes": variant.attributes,
+            "price": variant.price if variant.price is not None else product_exists.price
+        }
+        for variant in active_variants
+    ]
+
+    return jsonify(data), 200
 
     
 
