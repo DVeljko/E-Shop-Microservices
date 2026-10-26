@@ -742,18 +742,40 @@ def delete_product_variant(product_id, variant_id):
 
 @app.route("/products", methods=["GET"])
 def search_product():
-
+    
     search = request.args.get("search", "").strip()
     category_id = request.args.get("category_id")
     min_price = request.args.get("min_price")
     max_price = request.args.get("max_price")
+    is_featured = request.args.get("is_featured")
+    on_sale = request.args.get("on_sale")
+    sort = request.args.get("sort", "name_asc").strip().lower()
 
+    # Paginacija: podrazumevano stranica 1, po 20 proizvoda.
+    try:
+        page = int(request.args.get("page", "1"))
+        per_page = int(request.args.get("per_page", "20"))
+    except ValueError:
+        return jsonify({
+            "error": "page and per_page must be integers."
+        }), 400
+
+    if page < 1:
+        return jsonify({"error": "page must be at least 1."}), 400
+
+    if per_page < 1 or per_page > 100:
+        return jsonify({
+            "error": "per_page must be between 1 and 100."
+        }), 400
+
+    # Uvek prikazujemo samo aktivne proizvode.
     query = db.select(Product).where(Product.is_active == True)
 
+    # Pretraga po nazivu.
     if search:
         query = query.where(Product.name.ilike(f"%{search}%"))
 
-
+    # Kategorija kojoj je proizvod dodeljen.
     if category_id is not None:
         try:
             category_id = int(category_id)
@@ -762,10 +784,16 @@ def search_product():
                 "error": "Category ID must be an integer."
             }), 400
 
+        if category_id < 1:
+            return jsonify({
+                "error": "Category ID must be greater than zero."
+            }), 400
+
         query = query.where(
             Product.categories.any(Category.id == category_id)
         )
 
+    # Provera minimalne cene.
     if min_price is not None:
         try:
             min_price = Decimal(min_price)
@@ -776,9 +804,10 @@ def search_product():
 
         if not min_price.is_finite() or min_price < 0:
             return jsonify({
-                "error": "min_price must be a finite number greater than or equal to zero."
+                "error": "min_price must be a finite, non-negative number."
             }), 400
 
+    # Provera maksimalne cene.
     if max_price is not None:
         try:
             max_price = Decimal(max_price)
@@ -789,7 +818,7 @@ def search_product():
 
         if not max_price.is_finite() or max_price < 0:
             return jsonify({
-                "error": "max_price must be a finite number greater than or equal to zero."
+                "error": "max_price must be a finite, non-negative number."
             }), 400
 
     if min_price is not None and max_price is not None:
@@ -798,6 +827,7 @@ def search_product():
                 "error": "min_price cannot be greater than max_price."
             }), 400
 
+    # Akcijska cena ako postoji, inače redovna.
     effective_price = func.coalesce(Product.sale_price, Product.price)
 
     if min_price is not None:
@@ -806,26 +836,87 @@ def search_product():
     if max_price is not None:
         query = query.where(effective_price <= max_price)
 
+    # Istaknuti ili neistaknuti proizvodi.
+    if is_featured is not None:
+        is_featured = is_featured.strip().lower()
 
-    products = db.session.scalars(query).all()
+        if is_featured not in ("true", "false"):
+            return jsonify({
+                "error": "is_featured must be true or false."
+            }), 400
 
-    data = [
+        query = query.where(
+            Product.is_featured == (is_featured == "true")
+        )
+
+    # Proizvodi sa akcijskom cenom ili bez nje.
+    if on_sale is not None:
+        on_sale = on_sale.strip().lower()
+
+        if on_sale not in ("true", "false"):
+            return jsonify({
+                "error": "on_sale must be true or false."
+            }), 400
+
+        if on_sale == "true":
+            query = query.where(Product.sale_price.is_not(None))
+        else:
+            query = query.where(Product.sale_price.is_(None))
+
+    # Dozvoljeni načini sortiranja.
+    sort_options = {
+        "price_asc": effective_price.asc(),
+        "price_desc": effective_price.desc(),
+        "name_asc": Product.name.asc(),
+        "name_desc": Product.name.desc()
+    }
+
+    if sort not in sort_options:
+        return jsonify({
+            "error": "sort must be price_asc, price_desc, name_asc or name_desc."
+        }), 400
+
+    # ID određuje redosled kada su cena ili naziv isti.
+    query = query.order_by(sort_options[sort], Product.id.asc())
+
+    # Učitavamo samo traženu stranicu.
+    pagination = db.paginate(
+        query,
+        page=page,
+        per_page=per_page,
+        max_per_page=100,
+        error_out=False
+    )
+
+    products = [
         {
             "id": product.id,
             "name": product.name,
             "description": product.description,
             "price": product.price,
             "sale_price": product.sale_price,
+            "effective_price": (
+                product.sale_price
+                if product.sale_price is not None
+                else product.price
+            ),
             "is_active": product.is_active,
             "is_featured": product.is_featured
         }
-        for product in products
+        for product in pagination.items
     ]
 
-    return jsonify(data), 200
-
-
-    
+    return jsonify({
+        "products": products,
+        "pagination": {
+            "page": pagination.page,
+            "per_page": pagination.per_page,
+            "total": pagination.total,
+            "total_pages": pagination.pages,
+            "has_next": pagination.has_next,
+            "has_prev": pagination.has_prev
+        }
+    }), 200
 
 
     
