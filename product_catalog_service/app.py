@@ -738,32 +738,30 @@ def delete_product_variant(product_id, variant_id):
 
     return jsonify({"success": "You have successfully deleted a product variant."}), 200
 
-@app.route("/products", methods=['GET'])
+@app.route("/products", methods=["GET"])
 def search_product():
 
-    search = request.args.get("search")
-    if not search:
-        all_products = db.session.scalars(db.select(Product).where(Product.is_active == True)).all()
+    search = request.args.get("search", "").strip()
+    category_id = request.args.get("category_id")
 
-        data = [
-            {
-                "id": product.id,
-                "name": product.name,
-                "description": product.description,
-                "price": product.price,
-                "sale_price": product.sale_price,
-                "is_active": product.is_active,
-                "is_featured": product.is_featured
-            }
+    query = db.select(Product).where(Product.is_active == True)
 
-            for product in all_products
+    if search:
+        query = query.where(Product.name.ilike(f"%{search}%"))
 
-        ]
+    if category_id is not None:
+        try:
+            category_id = int(category_id)
+        except ValueError:
+            return jsonify({
+                "error": "Category ID must be an integer."
+            }), 400
 
-        return jsonify(data), 200
+        query = query.where(
+            Product.categories.any(Category.id == category_id)
+        )
 
-
-    products = db.session.scalars(db.select(Product).where(Product.is_active == True, Product.name.ilike(f"%{search}%"))).all()
+    products = db.session.scalars(query).all()
 
     data = [
         {
@@ -775,13 +773,10 @@ def search_product():
             "is_active": product.is_active,
             "is_featured": product.is_featured
         }
-
         for product in products
-
     ]
 
     return jsonify(data), 200
-
 
 
 
