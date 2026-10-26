@@ -647,8 +647,73 @@ def show_product_variants(product_id):
 
     return jsonify(data), 200
 
+@app.route("/products/<int:product_id>/variants/<int:variant_id>", methods=['PATCH'])
+@jwt_required()
+def edit_product_variant(product_id, variant_id):
+
+    claim = get_jwt()
+    role = claim.get("role")
+
+    if role != "admin":
+        return jsonify({"error": "Only admin can access."}), 403
+
+    product_exists = db.session.scalar(db.select(Product).where(Product.id == product_id))
+    if not product_exists:
+        return jsonify({"error": "Product not found."}), 404
+
+    variant_exists = db.session.scalar(db.select(ProductVariant).where(ProductVariant.product_id == product_id, ProductVariant.id == variant_id))
+    if not variant_exists:
+        return jsonify({"error": "Variant not found."}), 404
+
+    data = request.get_json()
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    if "sku" in data:
+        new_sku = data.get("sku")
+        if not isinstance(new_sku, str) or not new_sku.strip():
+            return jsonify({"error": "SKU needs to be a string and not empty field."}), 400
+
+        new_sku = new_sku.strip()
+
+        sku_exists = db.session.scalar(db.select(ProductVariant).where(ProductVariant.sku == new_sku, ProductVariant.id != variant_id))
+        if sku_exists:
+            return jsonify({"error": "SKU already exists."}), 409
+
+        variant_exists.sku = new_sku
+
+    if "attributes" in data:
+        new_attributes = data.get("attributes")
+        if not isinstance(new_attributes, dict):
+            return jsonify({"error": "Attributes needs to be sent as an object."}), 400
+
+        variant_exists.attributes = new_attributes
+
+    if "price" in data:
+        new_price = data.get("price")
+
+        if new_price is not None:
+            if not isinstance(new_price, (int, float)) or isinstance(new_price, bool):
+                return jsonify({"error": "Price must be a number."}), 400
+
+            if new_price <= 0:
+                return jsonify({"error": "Price must be greater than zero."}), 400
+
+        variant_exists.price = new_price
+        
+    if "is_active" in data:
+        new_is_active = data.get("is_active")
+        if not isinstance(new_is_active, bool):
+            return jsonify({"error": "Active status needs to be a boolean."}), 400
+
+        variant_exists.is_active = new_is_active
+
+    db.session.commit()
+    return jsonify({"success": " You have successfully updated product variant."}), 200
+
     
 
-
+    
 if __name__ == "__main__":
     app.run(debug=True)
