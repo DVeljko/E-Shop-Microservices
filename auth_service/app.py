@@ -156,85 +156,103 @@ def login():
         "refresh_token": refresh_token
     }), 200
     
-@app.route("/register", methods=['POST'])
+@app.route("/register", methods=["POST"])
 def register():
-
     data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
         return jsonify({"error": "JSON body must be an object."}), 400
 
-    name = data.get('name')
-    last_name = data.get('last_name')
-    username = data.get('username')
-    email = data.get('email')
-    password = data.get('password')
-    confirm_password = data.get('confirm_password')
+    fields = {
+        "name": data.get("name"),
+        "last_name": data.get("last_name"),
+        "username": data.get("username"),
+        "email": data.get("email"),
+        "password": data.get("password"),
+        "confirm_password": data.get("confirm_password")
+    }
 
-    if name and last_name and username and email and password and confirm_password:
-
-
-        username_exists = db.session.scalar(db.select(User).where(User.username == username))
-
-        if username_exists:
-            return jsonify({"error": "User with this username already exists"}), 409
-        
-
-        email_exists = db.session.scalar(db.select(User).where(User.email == email))
-
-        if email_exists:
-            return jsonify({"error": "User with this email exists"}), 409
-
-
-        if password != confirm_password:
-            return jsonify({"error": "Passwords do not match"}) , 400
-
-        new_user = User(
-            name=name,
-            last_name=last_name,
-            username=username,
-            email=email,
-            password= generate_password_hash(password)
-        )
-
-        db.session.add(new_user)
-        db.session.commit()
-
-        verification_token = serializer.dumps(
-            new_user.email,
-            salt="email-verification"
-        )
-
-        verification_url = (
-            f"{AUTH_SERVICE_URL}/verify-email"
-            f"?token={verification_token}"
-        )
-
-        try:
-            response = requests.post(
-                f"{NOTIFICATION_SERVICE_URL}/send-verification-email",
-                json={
-                    "email": new_user.email,
-                    "verification_url": verification_url
-                },
-                timeout=5
-            )
-
-            response.raise_for_status()
-
-        except requests.RequestException:
+    for field, value in fields.items():
+        if not isinstance(value, str) or not value.strip():
             return jsonify({
-                "success": "You have successfully registered.",
-                "warning": "Your account was created, but the verification email could not be sent."
-            }), 201
+                "error": f"{field} must be a non-empty string."
+            }), 400
 
+    name = fields["name"].strip()
+    last_name = fields["last_name"].strip()
+    username = fields["username"].strip()
+    email = fields["email"].strip()
+    password = fields["password"]
+    confirm_password = fields["confirm_password"]
+
+    if password != confirm_password:
+        return jsonify({"error": "Passwords do not match."}), 400
+
+    username_exists = db.session.scalar(
+        db.select(User).where(User.username == username)
+    )
+
+    if username_exists:
         return jsonify({
-            "success": "You have successfully registered. Please check your email to verify your account."
+            "error": "User with this username already exists."
+        }), 409
+
+    email_exists = db.session.scalar(
+        db.select(User).where(User.email == email)
+    )
+
+    if email_exists:
+        return jsonify({
+            "error": "User with this email already exists."
+        }), 409
+
+    new_user = User(
+        name=name,
+        last_name=last_name,
+        username=username,
+        email=email,
+        password=generate_password_hash(password)
+    )
+
+    db.session.add(new_user)
+    db.session.commit()
+
+    verification_token = serializer.dumps(
+        new_user.email,
+        salt="email-verification"
+    )
+
+    verification_url = (
+        f"{AUTH_SERVICE_URL}/verify-email"
+        f"?token={verification_token}"
+    )
+
+    try:
+        response = requests.post(
+            f"{NOTIFICATION_SERVICE_URL}/send-verification-email",
+            json={
+                "email": new_user.email,
+                "verification_url": verification_url
+            },
+            timeout=5
+        )
+        response.raise_for_status()
+
+    except requests.RequestException:
+        return jsonify({
+            "success": "You have successfully registered.",
+            "warning": (
+                "Your account was created, but the verification "
+                "email could not be sent."
+            )
         }), 201
 
-
-    else:
-        return jsonify({"error": "You need to enter all fields"}), 400
+    return jsonify({
+        "success": (
+            "You have successfully registered. "
+            "Please check your email to verify your account."
+        )
+    }), 201
 
 
 @app.route("/verify-email", methods=['GET'])
