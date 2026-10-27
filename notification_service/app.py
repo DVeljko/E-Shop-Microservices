@@ -28,8 +28,18 @@ def verify_email_registration():
     email = data.get("email")
     verification_url = data.get("verification_url")
 
-    if not email and not verification_url:
-        return jsonify({"error": "Email and verification URL are required."}), 400
+    if not isinstance(email, str) or not email.strip():
+        return jsonify({
+            "error": "Email is required and must be a string."
+        }), 400
+
+    if not isinstance(verification_url, str) or not verification_url.strip():
+        return jsonify({
+            "error": "Verification URL is required and must be a string."
+        }), 400
+
+    email = email.strip()
+    verification_url = verification_url.strip()
 
     message = Message(
         subject="Verify your email address",
@@ -42,7 +52,9 @@ def verify_email_registration():
     except Exception:
         return jsonify({"error": "Email could not be sent."}), 500
 
-    return jsonify({"success": "Verification email has been sent."}), 200
+    return jsonify({
+        "success": "Verification email has been sent."
+    }), 200
 
 @app.route("/send-password-reset-email", methods=['POST'])
 def send_password_reset():
