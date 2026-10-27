@@ -918,8 +918,50 @@ def search_product():
         }
     }), 200
 
+@app.route("/products/<int:product_id>/categories", methods=["PATCH"])
+@jwt_required()
+def edit_product_categories(product_id):
 
-    
+    claim = get_jwt()
+    role = claim.get("role")
+
+    if role != "admin":
+        return jsonify({"error": "Only admin can access."}), 403
+
+    product_exists = db.session.scalar(db.select(Product).where(Product.id == product_id))
+
+    if not product_exists:
+        return jsonify({"error": "Product not found."}), 404
+
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    category_ids = data.get("category_ids")
+
+    if not isinstance(category_ids, list):
+        return jsonify({"error": "Category IDs must be a list."}), 400
+
+    categories = []
+
+    for category_id in category_ids:
+        if not isinstance(category_id, int) or isinstance(category_id, bool):
+            return jsonify({"error": "Each category ID must be an integer."}), 400
+
+        category = db.session.scalar(db.select(Category).where(Category.id == category_id))
+
+        if not category:
+            return jsonify({"error": "Category not found."}), 404
+
+        if category not in categories:
+            categories.append(category)
+
+    product_exists.categories = categories
+
+    db.session.commit()
+
+    return jsonify({"success": "Product categories have been updated successfully."}), 200
 
     
 if __name__ == "__main__":
