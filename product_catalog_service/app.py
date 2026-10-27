@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from flask_jwt_extended import JWTManager, jwt_required, get_jwt
 from decimal import Decimal, InvalidOperation
 from sqlalchemy import func
+import requests
 
 
 load_dotenv()
@@ -16,13 +17,42 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///product_catalog.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY")
 
+AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL")
+
 db.init_app(app)
 migrate = Migrate(app, db)
 jwt = JWTManager(app)
 
+def check_token_with_auth():
+    try:
+        response = requests.get(
+            f"{AUTH_SERVICE_URL}/validate-token",
+            headers={
+                "Authorization": request.headers.get("Authorization", ""),
+            },
+            timeout=5,
+            allow_redirects=False
+                        
+        )
+
+    except requests.RequestException:
+        return jsonify({"error": "Authentication service is unavailable."}), 503
+
+    if response.status_code in (401,403,422):
+        return jsonify({"error": "Access token is not accepted."}), response.status_code
+
+    if response.status_code != 200:
+        return jsonify({"error": "Could not verify access token."}), 503
+
+    return None
+
 @app.route("/categories", methods=['POST'])
 @jwt_required()
 def create_category():
+
+    auth_error = check_token_with_auth()
+    if auth_error is not None:
+        return auth_error
 
     claims = get_jwt()
     role = claims.get("role")
@@ -86,6 +116,10 @@ def show_all_categories():
 @jwt_required()
 def edit_category(category_id):
 
+    auth_error = check_token_with_auth()
+    if auth_error is not None:
+        return auth_error
+
     claim = get_jwt()
     role = claim.get("role")
 
@@ -145,6 +179,10 @@ def edit_category(category_id):
 @jwt_required()
 def delete_category(category_id):
 
+    auth_error = check_token_with_auth()
+    if auth_error is not None:
+        return auth_error
+
     claim = get_jwt()
     role = claim.get("role")
 
@@ -170,6 +208,10 @@ def delete_category(category_id):
 @app.route("/products", methods=["POST"])
 @jwt_required()
 def add_product():
+
+    auth_error = check_token_with_auth()
+    if auth_error is not None:
+        return auth_error
 
     claim = get_jwt()
     role = claim.get("role")
@@ -240,31 +282,14 @@ def add_product():
 
     return jsonify({"success": "You have successfully added new product"}), 201
 
-@app.route("/products" , methods=['GET'])
-def show_all_products():
-
-    products = Product.query.filter_by(is_active=True).all()
-
-    data = [
-        {
-            "id": product.id,
-            "name": product.name,
-            "description": product.description,
-            "price": product.price,
-            "sale_price": product.sale_price,
-            "is_featured": product.is_featured
-
-        }
-
-
-        for product in products
-    ]
-
-    return jsonify(data), 200
 
 @app.route("/products/<int:product_id>", methods=['PATCH'])
 @jwt_required()
 def edit_product(product_id):
+
+    auth_error = check_token_with_auth()
+    if auth_error is not None:
+        return auth_error
 
     claim = get_jwt()
     role = claim.get("role")
@@ -353,6 +378,10 @@ def edit_product(product_id):
 @jwt_required()
 def delete_product(product_id):
 
+    auth_error = check_token_with_auth()
+    if auth_error is not None:
+        return auth_error
+
     claim = get_jwt()
     role = claim.get('role')
 
@@ -393,6 +422,10 @@ def show_single_product(product_id):
 @app.route("/products/<int:product_id>/images", methods=['POST'])
 @jwt_required()
 def add_image_to_product(product_id):
+
+    auth_error = check_token_with_auth()
+    if auth_error is not None:
+        return auth_error
 
     claim = get_jwt()
     role = claim.get("role")
@@ -458,6 +491,10 @@ def add_image_to_product(product_id):
 @app.route("/products/<int:product_id>/images/<int:image_id>", methods=['PATCH'])
 @jwt_required()
 def edit_product_image(product_id, image_id):
+
+    auth_error = check_token_with_auth()
+    if auth_error is not None:
+        return auth_error
 
     claim = get_jwt()
     role = claim.get('role')
@@ -548,6 +585,10 @@ def show_all_product_images(product_id):
 @jwt_required()
 def delete_product_image(product_id, image_id):
 
+    auth_error = check_token_with_auth()
+    if auth_error is not None:
+        return auth_error
+
     claim = get_jwt()
     role = claim.get("role")
 
@@ -567,6 +608,10 @@ def delete_product_image(product_id, image_id):
 @app.route("/products/<int:product_id>/variants", methods=['POST'])
 @jwt_required()
 def add_product_variant(product_id):
+
+    auth_error = check_token_with_auth()
+    if auth_error is not None:
+        return auth_error
 
     claim = get_jwt()
     role = claim.get("role")
@@ -653,6 +698,10 @@ def show_product_variants(product_id):
 @jwt_required()
 def edit_product_variant(product_id, variant_id):
 
+    auth_error = check_token_with_auth()
+    if auth_error is not None:
+        return auth_error
+
     claim = get_jwt()
     role = claim.get("role")
 
@@ -718,6 +767,10 @@ def edit_product_variant(product_id, variant_id):
 @app.route("/products/<int:product_id>/variants/<int:variant_id>", methods=['DELETE'])
 @jwt_required()
 def delete_product_variant(product_id, variant_id):
+
+    auth_error = check_token_with_auth()
+    if auth_error is not None:
+        return auth_error
 
     claim = get_jwt()
     role = claim.get("role")
@@ -921,6 +974,10 @@ def search_product():
 @app.route("/products/<int:product_id>/categories", methods=["PATCH"])
 @jwt_required()
 def edit_product_categories(product_id):
+
+    auth_error = check_token_with_auth()
+    if auth_error is not None:
+        return auth_error
 
     claim = get_jwt()
     role = claim.get("role")

@@ -15,6 +15,7 @@ class User(db.Model):
     role: Mapped[str] = mapped_column(nullable=False, default="customer")
     password: Mapped[str] = mapped_column(nullable=False)
     status: Mapped[str] = mapped_column(nullable=False, default="active")
+    token_version: Mapped[int] = mapped_column(nullable=False,default=0,server_default="0")
 
 class RevokedToken(db.Model):
 

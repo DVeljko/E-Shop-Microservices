@@ -1,0 +1,7 @@
+Flask
+Flask-SQLAlchemy
+SQLAlchemy
+Flask-Migrate
+Flask-JWT-Extended
+python-dotenv
+requests

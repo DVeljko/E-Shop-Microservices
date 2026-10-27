@@ -3,6 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 import os
 from dotenv import load_dotenv
 import requests
+from sqlalchemy import update
 
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 
@@ -48,55 +49,112 @@ jwt = JWTManager(app)
 @jwt.token_in_blocklist_loader
 def check_if_token_revoked(jwt_header, jwt_payload):
 
+    try:
+        user_id = int(jwt_payload.get("sub"))
+    except (TypeError, ValueError):
+        return True
+
+    user = db.session.get(User, user_id)
+
+    if not user:
+        return True
+
+    if jwt_payload.get("token_version") != user.token_version:
+        return True
+
     token = db.session.scalar(
         db.select(RevokedToken).where(
             RevokedToken.jti == jwt_payload["jti"]
         )
     )
-    
+
     return token is not None
 
 
-@app.route("/login", methods=['POST'])
-def login():
+@app.route("/validate-token", methods=["GET"])
+@jwt_required()
+def validate_token():
 
+    try:
+        user_id = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid token identity."}), 401
+
+    user = db.session.get(User, user_id)
+
+    if not user:
+        return jsonify({"error": "User not found."}), 401
+
+    if user.status != "active":
+        return jsonify({"error": "This account is inactive."}), 403
+
+    token_role = get_jwt().get("role")
+
+    if token_role != user.role:
+        return jsonify({
+            "error": "Your permissions have changed. Please log in again."
+        }), 401
+
+    return jsonify({"success": "Token is valid."}), 200
+
+
+@app.route("/login", methods=["POST"])
+def login():
     data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
         return jsonify({"error": "JSON body must be an object."}), 400
-    
-    email = data.get('email')
-    password = data.get('password')
 
-    if not email or not password:
-        return jsonify({"error": "Email and password are required."}), 400
+    email = data.get("email")
+    password = data.get("password")
 
+    if not isinstance(email, str) or not email.strip():
+        return jsonify({
+            "error": "Email is required and must be a string."
+        }), 400
 
-    user_exists = db.session.scalar(db.select(User).where(User.email == email))
+    if not isinstance(password, str) or not password.strip():
+        return jsonify({
+            "error": "Password is required and must be a string."
+        }), 400
 
-    if not user_exists:
-        return jsonify({"error": "Wrong email or password"}), 401
+    user = db.session.scalar(
+        db.select(User).where(User.email == email.strip())
+    )
 
-    if not check_password_hash(user_exists.password, password):
-        return jsonify({"error": "Wrong email or password"}), 401
+    if not user:
+        return jsonify({"error": "Wrong email or password."}), 401
 
-    if user_exists.status != "active":
+    if not check_password_hash(user.password, password):
+        return jsonify({"error": "Wrong email or password."}), 401
+
+    if user.status != "active":
         return jsonify({"error": "This account is inactive."}), 403
 
-    if not user_exists.email_verified:
+    if not user.email_verified:
         return jsonify({
             "error": "Please verify your email address before logging in."
         }), 403
 
     access_token = create_access_token(
-        identity=str(user_exists.id),
-        additional_claims={"role": user_exists.role}
+        identity=str(user.id),
+        additional_claims={
+            "role": user.role,
+            "token_version": user.token_version
+        }
     )
 
-    refresh_token = create_refresh_token(identity=str(user_exists.id))
-    
+    refresh_token = create_refresh_token(
+        identity=str(user.id),
+        additional_claims={
+            "token_version": user.token_version
+        }
+    )
 
-    return jsonify({"access_token": access_token, "refresh_token": refresh_token}), 200 
+    return jsonify({
+        "access_token": access_token,
+        "refresh_token": refresh_token
+    }), 200
     
 @app.route("/register", methods=['POST'])
 def register():
@@ -263,44 +321,84 @@ def logout():
         "success": "You have successfully logged out."
     }), 200
 
-@app.route("/change-password", methods=['POST'])
+@app.route("/change-password", methods=["POST"])
 @jwt_required()
 def change_password():
-
-    # DODATI RUCNU VALIDACIJU SIFRE DA NE BI KORISNIK PREKO JSON-A DIREKTNO POSLAO PODATKE OVOJ RUTI 
-
     user_id = int(get_jwt_identity())
+    user = db.session.get(User, user_id)
 
-    user_exists = db.session.scalar(db.select(User).where(User.id == user_id))
+    if not user:
+        return jsonify({"error": "User not found."}), 404
 
-    if not user_exists:
-        return jsonify({"error": "User with this ID does not exist!"}), 404
-
-    if user_exists.status != "active":
-        return jsonify({"error": "This user profile is not active"}), 403
+    if user.status != "active":
+        return jsonify({"error": "This account is inactive."}), 403
 
     data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
         return jsonify({"error": "JSON body must be an object."}), 400
-    
+
     current_password = data.get("current_password")
     new_password = data.get("new_password")
     confirm_new_password = data.get("confirm_new_password")
 
-    if not current_password or not new_password or not confirm_new_password:
-        return jsonify({"error": "You didnt send some of these fields: current password, new password, confirm new password"}), 400
+    fields = {
+        "current_password": current_password,
+        "new_password": new_password,
+        "confirm_new_password": confirm_new_password
+    }
 
-    if not check_password_hash(user_exists.password, current_password):
-        return jsonify({"error": "Your current password is not correct"}), 400
+    for field, value in fields.items():
+        if not isinstance(value, str) or not value.strip():
+            return jsonify({
+                "error": f"{field} must be a non-empty string."
+            }), 400
+
+    if not check_password_hash(user.password, current_password):
+        return jsonify({
+            "error": "Your current password is incorrect."
+        }), 400
 
     if new_password != confirm_new_password:
-        return jsonify({"error": "New password do not match"}), 400
+        return jsonify({"error": "Passwords do not match."}), 400
 
-    user_exists.password = generate_password_hash(new_password)
-    db.session.commit()
+    token_version = get_jwt()["token_version"]
 
-    return jsonify({"success": "Your password has been changed successfully."}), 200
+    try:
+        updated_user_id = db.session.scalar(
+            update(User)
+            .where(
+                User.id == user_id,
+                User.token_version == token_version,
+                User.status == "active"
+            )
+            .values(
+                password=generate_password_hash(new_password),
+                token_version=User.token_version + 1
+            )
+            .returning(User.id)
+        )
+
+        if updated_user_id is None:
+            db.session.rollback()
+            return jsonify({
+                "error": "Your account has changed. Please log in again."
+            }), 401
+
+        db.session.commit()
+
+    except SQLAlchemyError:
+        db.session.rollback()
+        return jsonify({
+            "error": "Could not change password. Please try again later."
+        }), 500
+
+    return jsonify({
+        "success": (
+            "Your password has been changed successfully. "
+            "Please log in again."
+        )
+    }), 200
 
 
 @app.route("/refresh-token", methods=['POST'])
@@ -318,7 +416,8 @@ def refresh_token():
     access_token = create_access_token(
         identity=str(user.id),
         additional_claims={
-            "role": user.role
+            "role": user.role,
+            "token_version": user.token_version
         }
     )
 
@@ -609,21 +708,39 @@ def delete_address(address_id):
 
     return jsonify({"success": "Your address has been deleted successfully."}), 200
 
-@app.route("/forgot-password", methods=['POST'])
+@app.route("/forgot-password", methods=["POST"])
 def forgot_password():
-
     data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
         return jsonify({"error": "JSON body must be an object."}), 400
 
-    email = data.get('email')
-    email_exists = db.session.scalar(db.select(User).where(User.email == email))
+    email = data.get("email")
 
-    if not email_exists:
-        return jsonify({"error": "User with that email does not exist"}), 400
+    if not isinstance(email, str) or not email.strip():
+        return jsonify({
+            "error": "Email is required and must be a string."
+        }), 400
 
-    reset_token = serializer.dumps(email_exists.email, salt="reset-password")
+    user = db.session.scalar(
+        db.select(User).where(User.email == email.strip())
+    )
+
+    success_message = (
+        "If an account exists with this email address, "
+        "a password reset link will be sent."
+    )
+
+    if not user:
+        return jsonify({"success": success_message}), 200
+
+    reset_token = serializer.dumps(
+        {
+            "user_id": user.id,
+            "token_version": user.token_version
+        },
+        salt="reset-password"
+    )
 
     reset_url = (
         f"{AUTH_SERVICE_URL}/reset-password"
@@ -634,28 +751,51 @@ def forgot_password():
         response = requests.post(
             f"{NOTIFICATION_SERVICE_URL}/send-password-reset-email",
             json={
-                "email": email_exists.email,
+                "email": user.email,
                 "reset_url": reset_url
-            },timeout=5
+            },
+            timeout=5
         )
-
         response.raise_for_status()
 
     except requests.RequestException:
-        return jsonify({"error": "Password reset email could not be sent. Please try again later."}), 503
+        return jsonify({
+            "error": (
+                "Password reset email could not be sent. "
+                "Please try again later."
+            )
+        }), 503
 
-    return jsonify({"success": "Password reset email has been sent successfully."}), 200
+    return jsonify({"success": success_message}), 200
 
-
-
-@app.route("/reset-password", methods=['POST'])
+@app.route("/reset-password", methods=["POST"])
 def reset_password():
 
     token = request.args.get("token")
 
     if not token:
         return jsonify({"error": "Reset token is required."}), 400
-    
+
+    try:
+        payload = serializer.loads(
+            token,
+            salt="reset-password",
+            max_age=3600
+        )
+    except SignatureExpired:
+        return jsonify({"error": "Reset token has expired."}), 400
+    except BadSignature:
+        return jsonify({"error": "Invalid reset token."}), 400
+
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid reset token."}), 400
+
+    user_id = payload.get("user_id")
+    token_version = payload.get("token_version")
+
+    if (not isinstance(user_id, int)or isinstance(user_id, bool)or not isinstance(token_version, int)or isinstance(token_version, bool)):
+        return jsonify({"error": "Invalid reset token."}), 400
+
     data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
@@ -665,37 +805,43 @@ def reset_password():
     confirm_new_password = data.get("confirm_new_password")
 
     if not isinstance(new_password, str) or not new_password.strip():
-        return jsonify({"error": "New password is required and must be a string."}), 400
+        return jsonify({
+            "error": "New password is required and must be a string."
+        }), 400
 
-    if not isinstance(confirm_new_password, str) or not confirm_new_password.strip():
+    if (not isinstance(confirm_new_password, str)or not confirm_new_password.strip()):
         return jsonify({"error": "Confirm new password is required and must be a string."}), 400
 
     if new_password != confirm_new_password:
         return jsonify({"error": "Passwords do not match."}), 400
 
     try:
-        email = serializer.loads(
-            token,
-            salt="reset-password",
-            max_age=3600
-        )
+        updated_user_id = db.session.scalar(
+            update(User)
+            .where(
+                User.id == user_id,
+                User.token_version == token_version
+            )
+            .values(
+                password=generate_password_hash(new_password),
+                token_version=User.token_version + 1).returning(User.id)
+            )
 
-    except SignatureExpired:
-        return jsonify({"error": "Reset token has expired."}) , 400
-    
-    except BadSignature:
-        return jsonify({"error": "Invalid reset token."}) , 400
+        if updated_user_id is None:
+            db.session.rollback()
+            return jsonify({
+                "error": "Reset link is invalid or has already been used."
+            }), 400
 
-    user = db.session.scalar(db.select(User).where(User.email == email))
+        db.session.commit()
 
-    if not user:
-        return jsonify({"error": "There is no user with this email."}), 400
+    except SQLAlchemyError:
+        db.session.rollback()
+        return jsonify({"error": "Could not reset password."}), 500
 
-
-    user.password = generate_password_hash(new_password)
-    db.session.commit()
-
-    return jsonify({"success": "Your password has been reset successfully."}), 200
+    return jsonify({
+        "success": "Your password has been reset successfully."
+    }), 200
 
 
 
