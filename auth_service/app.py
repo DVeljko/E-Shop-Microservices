@@ -863,8 +863,62 @@ def reset_password():
 
 
 
-    
+@app.route("/resend-verification-email", methods=["POST"])
+def resend_verification_email():
+    data = request.get_json(silent=True)
 
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    email = data.get("email")
+
+    if not isinstance(email, str) or not email.strip():
+        return jsonify({
+            "error": "Email is required and must be a string."
+        }), 400
+
+    user = db.session.scalar(
+        db.select(User).where(User.email == email.strip())
+    )
+
+    success_message = (
+        "If an unverified account exists with this email address, "
+        "a verification link will be sent."
+    )
+
+    if not user or user.email_verified:
+        return jsonify({"success": success_message}), 200
+
+    verification_token = serializer.dumps(
+        user.email,
+        salt="email-verification"
+    )
+
+    verification_url = (
+        f"{AUTH_SERVICE_URL}/verify-email"
+        f"?token={verification_token}"
+    )
+
+    try:
+        response = requests.post(
+            f"{NOTIFICATION_SERVICE_URL}/send-verification-email",
+            json={
+                "email": user.email,
+                "verification_url": verification_url
+            },
+            timeout=5
+        )
+        response.raise_for_status()
+
+    except requests.RequestException:
+        return jsonify({
+            "error": (
+                "Verification email could not be sent. "
+                "Please try again later."
+            )
+        }), 503
+
+    return jsonify({"success": success_message}), 200
 
 
 
