@@ -48,7 +48,6 @@ jwt = JWTManager(app)
 
 @jwt.token_in_blocklist_loader
 def check_if_token_revoked(jwt_header, jwt_payload):
-
     try:
         user_id = int(jwt_payload.get("sub"))
     except (TypeError, ValueError):
@@ -62,13 +61,23 @@ def check_if_token_revoked(jwt_header, jwt_payload):
     if jwt_payload.get("token_version") != user.token_version:
         return True
 
-    token = db.session.scalar(
+    token_ids = [jwt_payload["jti"]]
+
+    if jwt_payload.get("type") == "access":
+        refresh_jti = jwt_payload.get("refresh_jti")
+
+        if not isinstance(refresh_jti, str) or not refresh_jti:
+            return True
+
+        token_ids.append(refresh_jti)
+
+    revoked_token = db.session.scalar(
         db.select(RevokedToken).where(
-            RevokedToken.jti == jwt_payload["jti"]
+            RevokedToken.jti.in_(token_ids)
         )
     )
 
-    return token is not None
+    return revoked_token is not None
 
 
 @app.route("/validate-token", methods=["GET"])
@@ -136,14 +145,6 @@ def login():
             "error": "Please verify your email address before logging in."
         }), 403
 
-    access_token = create_access_token(
-        identity=str(user.id),
-        additional_claims={
-            "role": user.role,
-            "token_version": user.token_version
-        }
-    )
-
     refresh_token = create_refresh_token(
         identity=str(user.id),
         additional_claims={
@@ -151,10 +152,22 @@ def login():
         }
     )
 
+    refresh_jti = decode_token(refresh_token)["jti"]
+
+    access_token = create_access_token(
+        identity=str(user.id),
+        additional_claims={
+            "role": user.role,
+            "token_version": user.token_version,
+            "refresh_jti": refresh_jti
+        }
+    )
+
     return jsonify({
         "access_token": access_token,
         "refresh_token": refresh_token
     }), 200
+
     
 @app.route("/register", methods=["POST"])
 def register():
@@ -292,52 +305,24 @@ def verify_email():
 @app.route("/logout", methods=["POST"])
 @jwt_required(refresh=True)
 def logout():
-    data = request.get_json(silent=True)
+    refresh_jti = get_jwt()["jti"]
 
-    if not isinstance(data, dict):
-        return jsonify({"error": "JSON body must be an object."}), 400
-
-    access_token = data.get("access_token")
-
-    if not isinstance(access_token, str) or not access_token.strip():
-        return jsonify({"error": "Access token is required."}), 400
-
-    # Refresh token je već proveren kroz dekorator.
-    refresh_payload = get_jwt()
-
-    # Proveravamo potpis access tokena, čak i ako je istekao.
     try:
-        access_payload = decode_token(access_token, allow_expired=True)
-    except (InvalidTokenError, JWTDecodeError):
-        return jsonify({"error": "Invalid access token."}), 400
+        revoked_token = RevokedToken(jti=refresh_jti)
 
-    if access_payload.get("type") != "access":
-        return jsonify({"error": "An access token is required."}), 400
-
-    if access_payload["sub"] != refresh_payload["sub"]:
-        return jsonify({
-            "error": "Both tokens must belong to the same user."
-        }), 403
-
-    # Oba ID-a čuvamo u jednoj transakciji.
-    try:
-        for jti in (access_payload["jti"], refresh_payload["jti"]):
-            already_revoked = db.session.scalar(
-                db.select(RevokedToken).where(RevokedToken.jti == jti)
-            )
-
-            if not already_revoked:
-                db.session.add(RevokedToken(jti=jti))
-
+        db.session.add(revoked_token)
         db.session.commit()
 
     except SQLAlchemyError:
         db.session.rollback()
-        return jsonify({"error": "Could not complete logout."}), 500
+        return jsonify({
+            "error": "Could not complete logout."
+        }), 500
 
     return jsonify({
         "success": "You have successfully logged out."
     }), 200
+
 
 @app.route("/change-password", methods=["POST"])
 @jwt_required()
@@ -419,23 +404,26 @@ def change_password():
     }), 200
 
 
-@app.route("/refresh-token", methods=['POST'])
+@app.route("/refresh-token", methods=["POST"])
 @jwt_required(refresh=True)
 def refresh_token():
-    user_id = get_jwt_identity()
-    user = db.session.get(User, int(user_id))
+    user_id = int(get_jwt_identity())
+    user = db.session.get(User, user_id)
 
     if not user:
         return jsonify({"error": "User not found."}), 404
 
     if user.status != "active":
         return jsonify({"error": "This account is inactive."}), 403
-    
+
+    refresh_jti = get_jwt()["jti"]
+
     access_token = create_access_token(
         identity=str(user.id),
         additional_claims={
             "role": user.role,
-            "token_version": user.token_version
+            "token_version": user.token_version,
+            "refresh_jti": refresh_jti
         }
     )
 
