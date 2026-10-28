@@ -1020,6 +1020,25 @@ def edit_product_categories(product_id):
 
     return jsonify({"success": "Product categories have been updated successfully."}), 200
 
+
+@app.route("/variants/<string:sku>", methods=["GET"])
+def find_variant(sku):
+    
+    variant = db.session.scalar(
+        db.select(ProductVariant).where(ProductVariant.sku == sku)
+    )
+
+    if not variant:
+        return jsonify({"error": "Variant not found."}), 404
+
+    if not variant.is_active or not variant.product.is_active:
+        return jsonify({"error": "Variant not found."}), 404
+
+    return jsonify({
+        "id": variant.id,
+        "product_id": variant.product_id,
+        "sku": variant.sku
+    }), 200
     
 if __name__ == "__main__":
     app.run(debug=True, port=5002)

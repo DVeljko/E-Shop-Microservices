@@ -47,6 +47,79 @@ def check_token_with_auth():
 
     return None
 
+@app.route("/inventory", methods=["POST"])
+@jwt_required()
+def add_inventory():
+    auth_error = check_token_with_auth()
+
+    if auth_error is not None:
+        return auth_error
+
+    claim = get_jwt()
+    role = claim.get("role")
+
+    if role != "admin":
+        return jsonify({"error": "Only admin can access."}), 403
+
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    sku = data.get("sku")
+
+    if not isinstance(sku, str) or not sku.strip():
+        return jsonify({
+            "error": "SKU must be a non-empty string."
+        }), 400
+
+    sku = sku.strip()
+
+    inventory_exists = db.session.scalar(
+        db.select(InventoryRecords).where(InventoryRecords.sku == sku)
+    )
+
+    if inventory_exists:
+        return jsonify({
+            "error": "Inventory for this SKU already exists."
+        }), 409
+
+    try:
+        response = requests.get(
+            f"{PRODUCT_CATALOG_URL}/variants/{sku}",
+            timeout=5,
+            allow_redirects=False
+        )
+
+    except requests.RequestException:
+        return jsonify({
+            "error": "Product catalog service is unavailable."
+        }), 503
+
+    if response.status_code == 404:
+        return jsonify({
+            "error": "An active variant with this SKU was not found."
+        }), 404
+
+    if response.status_code != 200:
+        return jsonify({
+            "error": "Could not verify SKU with the product catalog service."
+        }), 502
+
+    new_inventory = InventoryRecords(
+        sku=sku,
+    )
+
+    db.session.add(new_inventory)
+    db.session.commit()
+
+    return jsonify({
+        "success": "Inventory has been created successfully.",
+        "sku": new_inventory.sku,
+        "quantity": new_inventory.quantity
+    }), 201
+
+
 @app.route("/inventory/adjustments", methods=['PATCH'])
 @jwt_required()
 def adjust_inventory():
