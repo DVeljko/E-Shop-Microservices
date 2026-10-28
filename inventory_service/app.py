@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
-from models import db
+from models import db, InventoryRecords
 from flask_migrate import Migrate
-from flask_jwt_extended import JWTManager
+from flask_jwt_extended import JWTManager, jwt_required, get_jwt
 import requests
 
 import os
@@ -18,6 +18,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY")
 
 AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL")
+PRODUCT_CATALOG_URL = os.getenv("PRODUCT_CATALOG_URL")
 
 db.init_app(app)
 migrate = Migrate(app, db)
@@ -45,6 +46,64 @@ def check_token_with_auth():
         return jsonify({"error": "Could not verify access token."}), 503
 
     return None
+
+@app.route("/inventory/adjustments", methods=['PATCH'])
+@jwt_required()
+def adjust_inventory():
+
+    auth_error = check_token_with_auth()
+
+    if auth_error is not None:
+        return auth_error
+
+    claim = get_jwt()
+    role = claim.get("role")
+
+    if role != "admin":
+        return jsonify({"error":"Only admin can access."}), 403
+
+    data = request.get_json()
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    if "sku" not in data:
+        return jsonify({"error": "SKU is required."}), 400
+
+    sku = data.get("sku")
+    if not isinstance(sku, str) or not sku.strip():
+        return jsonify({"error": "SKU needs to be a string and not empty field."}), 400
+
+    sku = sku.strip()
+
+    if "quantity_change" not in data:
+        return jsonify({"error": "Quantity changes is required."}), 400
+
+    quantity_change = data.get("quantity_change")
+    if not isinstance(quantity_change, int) or isinstance(quantity_change, bool):
+        return jsonify({"error": "Quantity change needs to be an integer and not boolean."}), 400
+
+    sku_exists = db.session.scalar(db.select(InventoryRecords).where(InventoryRecords.sku == sku))
+    if not sku_exists:
+        return jsonify({"error": "Product with that SKU does not exist."}), 404
+
+    validate_quantity = sku_exists.quantity + quantity_change
+    if validate_quantity < 0:
+        return jsonify({"error": "You cant go to negative number with quantity."}), 400
+
+    sku_exists.quantity = validate_quantity
+
+    db.session.commit()
+
+    return jsonify({
+        "success": "Inventory quantity has been updated successfully.",
+        "sku": sku_exists.sku,
+        "quantity": sku_exists.quantity,
+    }) , 200
+
+
+
+
+    
 
 
 
