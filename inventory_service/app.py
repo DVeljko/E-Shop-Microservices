@@ -1,11 +1,15 @@
 from flask import Flask, request, jsonify
-from models import db, InventoryRecords
+from models import db, InventoryRecords, StockReservation
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager, jwt_required, get_jwt
 import requests
 
 import os
 from dotenv import load_dotenv
+
+from secrets import compare_digest
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
 load_dotenv()
 
@@ -14,6 +18,8 @@ app = Flask(__name__)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///inventory.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+INVENTORY_SERVICE_KEY = os.getenv("INVENTORY_SERVICE_KEY")
 
 app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY")
 
@@ -189,12 +195,100 @@ def adjust_inventory():
         "quantity": sku_exists.quantity,
     }) , 200
 
-
-
-
+@app.route("/inventory/reservations", methods=["POST"])
+def inventory_reservation():
     
+    if not INVENTORY_SERVICE_KEY:
+        return jsonify({"error": "Service authentication is not configured."}), 503
 
+    provided_key = request.headers.get("X-Service-Key", "")
 
+    if not compare_digest(
+        provided_key.encode("utf-8"),
+        INVENTORY_SERVICE_KEY.encode("utf-8")
+    ):
+        return jsonify({"error": "Unauthorized service."}), 401
+
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    sku = data.get("sku")
+
+    if not isinstance(sku, str) or not sku.strip():
+        return jsonify({"error": "SKU must be a non-empty string."}), 400
+
+    sku = sku.strip()
+
+    order_id = data.get("order_id")
+
+    if not isinstance(order_id, int) or isinstance(order_id, bool):
+        return jsonify({"error": "Order ID must be an integer."}), 400
+
+    if order_id <= 0:
+        return jsonify({"error": "Order ID must be greater than zero."}), 400
+
+    reserved_quantity = data.get("reserved_quantity")
+
+    if (not isinstance(reserved_quantity, int)or isinstance(reserved_quantity, bool)):
+        return jsonify({"error": "Reserved quantity must be an integer."}), 400
+
+    if reserved_quantity <= 0:
+        return jsonify({"error": "Reserved quantity must be greater than zero."}), 400
+
+    try:
+        # SQLite: zauzimamo pravo upisa pre čitanja stanja.
+        db.session.execute(text("BEGIN IMMEDIATE"))
+
+        inventory = db.session.scalar(db.select(InventoryRecords).where(InventoryRecords.sku == sku))
+
+        if not inventory:
+            db.session.rollback()
+            return jsonify({"error": "SKU not found."}), 404
+
+        reserved = db.session.scalars(db.select(StockReservation).where(StockReservation.inventory_id == inventory.id,StockReservation.status == "reserved")).all()
+
+        already_reserved = 0
+
+        for reserve in reserved:
+            already_reserved += reserve.reserved_quantity
+
+        available = inventory.quantity - already_reserved
+
+        if reserved_quantity > available:
+            db.session.rollback()
+            return jsonify({"error": "Not enough stock available."}), 409
+
+        new_reservation = StockReservation(
+            inventory_id=inventory.id,
+            order_id=order_id,
+            reserved_quantity=reserved_quantity,
+            status="reserved"
+        )
+
+        db.session.add(new_reservation)
+
+        # Izvršavamo INSERT da dobijemo ID, pa potvrđujemo transakciju.
+        db.session.flush()
+        reservation_id = new_reservation.id
+        db.session.commit()
+
+    except OperationalError:
+        db.session.rollback()
+        return jsonify({"error": "Inventory is temporarily unavailable. Please try again."}), 503
+
+    except SQLAlchemyError:
+        db.session.rollback()
+        return jsonify({"error": "Could not create reservation."}), 500
+
+    return jsonify({
+        "success": "Stock has been reserved successfully.",
+        "reservation_id": reservation_id,
+        "order_id": order_id,
+        "sku": sku,
+        "reserved_quantity": reserved_quantity
+    }), 201
 
 
 

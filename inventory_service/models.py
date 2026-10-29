@@ -12,8 +12,8 @@ class InventoryRecords(db.Model):
 
 class StockReservation(db.Model):
     id: Mapped[int] = mapped_column(primary_key=True)
-    sku_id: Mapped[int] = mapped_column(nullable=False)
     order_id: Mapped[int] = mapped_column(nullable=False)
     reserved_quantity: Mapped[int] = mapped_column(nullable=False) 
+    status: Mapped[str] = mapped_column(nullable=False, default="reserved")
 
     inventory_id: Mapped[int] = mapped_column(ForeignKey("inventory_records.id"), nullable=False)
