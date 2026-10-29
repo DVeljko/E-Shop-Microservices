@@ -291,7 +291,53 @@ def inventory_reservation():
     }), 201
 
 
+@app.route("/inventory/reservations/<int:reservation_id>/release", methods=['POST'])
+def release_reservation(reservation_id):
 
+    if not INVENTORY_SERVICE_KEY:
+        return jsonify({"error": "Service authentication is not configured."}), 503
+
+    provided_key = request.headers.get("X-Service-Key", "")
+
+    if not compare_digest(
+        provided_key.encode("utf-8"),
+        INVENTORY_SERVICE_KEY.encode("utf-8")
+    ):
+        return jsonify({"error": "Unauthorized service."}), 401
+
+    try:
+        db.session.execute(text("BEGIN IMMEDIATE"))
+        reservation_exists = db.session.scalar(db.select(StockReservation).where(StockReservation.id == reservation_id))
+
+        if not reservation_exists:
+
+            db.session.rollback()
+            return jsonify({"error": "Reservation not found."}), 404
+
+        if reservation_exists.status == "released":
+
+            db.session.rollback()
+            return jsonify({"success": "Reservation is already released."}), 200
+
+        if reservation_exists.status != "reserved":
+
+            db.session.rollback()
+            return jsonify({"error": "Only an active reservation can be released."}), 409
+
+        reservation_exists.status = "released"
+        db.session.commit()
+
+    except OperationalError:
+        db.session.rollback()
+        return jsonify({"error": "Could not release reservation."}), 500
+
+    except SQLAlchemyError:
+        db.session.rollback()
+        return jsonify({"error": "Could not release reservation."}), 500
+
+
+    return jsonify({"success": "Reservation is released."}), 200
+    
 
 if __name__ == "__main__":
     app.run(debug=True, port=5007)
