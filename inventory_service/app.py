@@ -337,7 +337,63 @@ def release_reservation(reservation_id):
 
 
     return jsonify({"success": "Reservation is released."}), 200
-    
+
+@app.route("/inventory/reservations/<int:reservation_id>/confirm", methods=['POST'])
+def confirm_reservation(reservation_id):
+
+    if not INVENTORY_SERVICE_KEY:
+        return jsonify({"error": "Service authentication is not configured."}), 503
+
+    provided_key = request.headers.get("X-Service-Key", "")
+
+    if not compare_digest(
+        provided_key.encode("utf-8"),
+        INVENTORY_SERVICE_KEY.encode("utf-8")
+    ):
+
+        return jsonify({"error": "Unauthorized service."}), 401
+
+    try:
+        db.session.execute(text("BEGIN IMMEDIATE"))
+        reservation_exists = db.session.scalar(db.select(StockReservation).where(StockReservation.id == reservation_id))
+
+        
+        if not reservation_exists:
+            db.session.rollback()
+            return jsonify({"error": "Reservation not found."}), 404
+
+        if reservation_exists.status == "confirmed":
+            db.session.rollback()
+            return jsonify({"success": "Reservation is already confirmed."}), 200
+
+        if reservation_exists.status != "reserved":
+            db.session.rollback()
+            return jsonify({"error": "Only an active reservation can be confirmed."}), 409
+
+        inventory = db.session.get(InventoryRecords, reservation_exists.inventory_id)
+
+        if not inventory:
+            db.session.rollback()
+            return jsonify({"error": "Inventory record not found."}), 404
+
+        if inventory.quantity < reservation_exists.reserved_quantity:
+            db.session.rollback()
+            return jsonify({"error": "Not enough stock to confirm reservation."}), 409
+
+        inventory.quantity -= reservation_exists.reserved_quantity
+
+        reservation_exists.status = "confirmed"
+        db.session.commit()
+
+    except OperationalError:
+        db.session.rollback()
+        return jsonify({"error": "Could not confirm reservation"}), 500
+
+    except SQLAlchemyError:
+        db.session.rollback()
+        return jsonify({"error": "Could not confirm reservation."}), 500    
+
+    return jsonify({"success": "Reservation has been confirmed successfully."}), 200
 
 if __name__ == "__main__":
     app.run(debug=True, port=5007)
