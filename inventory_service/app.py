@@ -177,17 +177,41 @@ def adjust_inventory():
     if not isinstance(quantity_change, int) or isinstance(quantity_change, bool):
         return jsonify({"error": "Quantity change needs to be an integer and not boolean."}), 400
 
-    sku_exists = db.session.scalar(db.select(InventoryRecords).where(InventoryRecords.sku == sku))
-    if not sku_exists:
-        return jsonify({"error": "Product with that SKU does not exist."}), 404
+    try:
+        db.session.execute(text("BEGIN IMMEDIATE"))
+        sku_exists = db.session.scalar(db.select(InventoryRecords).where(InventoryRecords.sku == sku))
 
-    validate_quantity = sku_exists.quantity + quantity_change
-    if validate_quantity < 0:
-        return jsonify({"error": "You cant go to negative number with quantity."}), 400
+        if not sku_exists:
+            db.session.rollback()
+            return jsonify({"error": "Product with that SKU does not exist."}), 404
 
-    sku_exists.quantity = validate_quantity
+        stock_reservation = db.session.scalars(db.select(StockReservation).where(StockReservation.inventory_id == sku_exists.id, StockReservation.status == "reserved"))
 
-    db.session.commit()
+        already_reserved = 0
+
+        for reservation in stock_reservation:
+            already_reserved += reservation.reserved_quantity
+
+        validate_quantity = sku_exists.quantity + quantity_change
+        if validate_quantity < 0:
+            db.session.rollback()
+            return jsonify({"error": "You cant go to negative number with quantity."}), 400
+
+        if validate_quantity < already_reserved:
+            db.session.rollback()
+            return jsonify({"error": "Quantity cannot be reduced below reserved stock."}), 409
+
+        sku_exists.quantity = validate_quantity
+
+        db.session.commit()
+
+    except OperationalError:
+        db.session.rollback()
+        return jsonify({"error": "Inventory is temporarily unavailable. Please try again."}), 503
+
+    except SQLAlchemyError:
+        db.session.rollback()
+        return jsonify({"error": "Could not update inventory quantity."}), 500
 
     return jsonify({
         "success": "Inventory quantity has been updated successfully.",
