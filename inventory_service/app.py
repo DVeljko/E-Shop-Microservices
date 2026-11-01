@@ -419,5 +419,33 @@ def confirm_reservation(reservation_id):
 
     return jsonify({"success": "Reservation has been confirmed successfully."}), 200
 
+@app.route("/inventory/<string:sku>", methods=['GET'])
+def available_sku(sku):
+
+    inventory_exists = db.session.scalar(db.select(InventoryRecords).where(InventoryRecords.sku == sku))
+    if not inventory_exists:
+        return jsonify({"error": "SKU not found."}), 404
+
+    stock_exists = db.session.scalars(db.select(StockReservation).where(StockReservation.inventory_id == inventory_exists.id, StockReservation.status == "reserved"))
+
+    all_reserved_sku = 0
+    for reservation in stock_exists:
+        all_reserved_sku += reservation.reserved_quantity
+
+
+    quantity = inventory_exists.quantity
+
+    available = quantity - all_reserved_sku
+
+    return jsonify({
+        "sku": inventory_exists.sku,
+        "quantity": inventory_exists.quantity,
+        "reserved_quantity": all_reserved_sku,
+        "available_quantity": available,
+        "available": available > 0
+    }), 200
+
+    
+
 if __name__ == "__main__":
     app.run(debug=True, port=5007)
