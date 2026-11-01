@@ -486,7 +486,5 @@ def low_stock_alert(sku):
         "low_stock": available < MINIMUM_QUANTITY
     }), 200
 
-    
-
 if __name__ == "__main__":
     app.run(debug=True, port=5007)
