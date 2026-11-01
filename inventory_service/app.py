@@ -30,6 +30,8 @@ db.init_app(app)
 migrate = Migrate(app, db)
 jwt = JWTManager(app)
 
+MINIMUM_QUANTITY = 5
+
 def check_token_with_auth():
     try:
         response = requests.get(
@@ -459,6 +461,29 @@ def available_sku(sku):
         "reserved_quantity": all_reserved_sku,
         "available_quantity": available,
         "available": available > 0
+    }), 200
+
+@app.route("/inventory/<string:sku>/low-stock", methods=['GET'])
+def low_stock_alert(sku):
+
+    sku_exists = db.session.scalar(db.select(InventoryRecords).where(InventoryRecords.sku == sku))
+
+    if not sku_exists:
+        return jsonify({"error": "SKU not found."}), 404
+    
+    stocks = db.session.scalars(db.select(StockReservation).where(StockReservation.inventory_id == sku_exists.id, StockReservation.status == "reserved"))
+
+    reserved_stock = 0
+    for stock in stocks:
+        reserved_stock += stock.reserved_quantity
+
+    available = sku_exists.quantity - reserved_stock
+
+    return jsonify({
+        "sku": sku_exists.sku,
+        "available_quantity": available,
+        "minimum_quantity": MINIMUM_QUANTITY,
+        "low_stock": available < MINIMUM_QUANTITY
     }), 200
 
     
