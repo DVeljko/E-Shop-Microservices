@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from models import db, InventoryRecords, StockReservation
+from models import db, InventoryRecords, StockReservation, StockMovement
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager, jwt_required, get_jwt
 import requests
@@ -202,6 +202,14 @@ def adjust_inventory():
             return jsonify({"error": "Quantity cannot be reduced below reserved stock."}), 409
 
         sku_exists.quantity = validate_quantity
+
+        stock_movement = StockMovement(
+            inventory_id = sku_exists.id,
+            quantity_change=quantity_change,
+            reason="adjustment",
+        )
+
+        db.session.add(stock_movement)
 
         db.session.commit()
 
@@ -407,6 +415,14 @@ def confirm_reservation(reservation_id):
         inventory.quantity -= reservation_exists.reserved_quantity
 
         reservation_exists.status = "confirmed"
+
+        stock_movement = StockMovement(
+            inventory_id=inventory.id,
+            quantity_change=-reservation_exists.reserved_quantity,
+            reason="purchase"
+        )
+
+        db.session.add(stock_movement)
         db.session.commit()
 
     except OperationalError:
