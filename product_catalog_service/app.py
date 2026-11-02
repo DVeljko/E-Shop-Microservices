@@ -18,6 +18,7 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY")
 
 AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL")
+INVENTORY_SERVICE_URL = os.getenv("INVENTORY_SERVICE_URL")
 
 db.init_app(app)
 migrate = Migrate(app, db)
@@ -803,6 +804,7 @@ def search_product():
     is_featured = request.args.get("is_featured")
     on_sale = request.args.get("on_sale")
     sort = request.args.get("sort", "name_asc").strip().lower()
+    in_stock = request.args.get("in_stock")
 
     # Paginacija: podrazumevano stranica 1, po 20 proizvoda.
     try:
@@ -915,6 +917,59 @@ def search_product():
             query = query.where(Product.sale_price.is_not(None))
         else:
             query = query.where(Product.sale_price.is_(None))
+
+    if in_stock is not None:
+        in_stock = in_stock.strip().lower()
+
+        if in_stock not in ("true", "false"):
+            return jsonify({
+                "error": "in_stock must be true or false."
+            }), 400
+
+        matching_products = db.session.scalars(query).all()
+        available_products_id = []
+
+        for product in matching_products:
+            for variant in product.variants:
+                if not variant.is_active:
+                    continue
+
+                sku = variant.sku
+
+                try:
+                    response = requests.get(
+                        f"{INVENTORY_SERVICE_URL}/inventory/{sku}",
+                        timeout=5,
+                        allow_redirects=False
+                    )
+
+                    # Za ovaj SKU još nema zapisa u Inventoryju.
+                    if response.status_code == 404:
+                        continue
+
+                    if response.status_code != 200:
+                        return jsonify({
+                            "error": "Inventory service is unavailable."
+                        }), 503
+
+                    data = response.json()
+
+                except requests.RequestException:
+                    return jsonify({
+                        "error": "Could not retrieve inventory availability."
+                    }), 503
+
+                if not isinstance(data, dict) or not isinstance(data.get("available"), bool):
+                    return jsonify({"error": "Invalid response from inventory service."}), 502
+
+                if data["available"]:
+                    available_products_id.append(product.id)
+                    break
+
+        if in_stock == "true":
+            query = query.where(Product.id.in_(available_products_id))
+        else:
+            query = query.where(Product.id.not_in(available_products_id))
 
     # Dozvoljeni načini sortiranja.
     sort_options = {
