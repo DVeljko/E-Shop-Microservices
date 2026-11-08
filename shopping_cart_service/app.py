@@ -212,8 +212,89 @@ def add_item():
 
     return response, 200
 
+@app.route("/cart/items/<string:sku>", methods=['PATCH'])
+@jwt_required(optional=True)
+def update_cart_item(sku):
+
+    user_id = get_jwt_identity()
+
+    if user_id is not None:
+        auth_error = check_token_with_auth()
+        if auth_error is not None:
+            return auth_error
+
+        user_id = int(user_id)
+
+    if user_id is not None:
+        user_cart = db.session.scalar(db.select(Cart).where(Cart.user_id == user_id))
+
+        if not user_cart:
+            return jsonify({"error": "Cart not found."}), 404
+
+    else:
+        guest_token = request.cookies.get("guest_token")
+
+        if not guest_token:
+            return jsonify({"error": "Guest cart not found."}), 404
+
+        user_cart = db.session.scalar(db.select(Cart).where(Cart.guest_token == guest_token, Cart.user_id.is_(None)))
+
+        if not user_cart:
+            return jsonify({"error": "Guest cart not found."}), 404
+        
+    cart_item = db.session.scalar(db.select(CartItem).where(CartItem.cart_id == user_cart.id, CartItem.sku == sku))
+
+    if not cart_item:
+        return jsonify({"error": "Cart item not found."}), 404
+
+    data = request.get_json()
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    new_quantity = data.get("quantity")
+
+    if not isinstance(new_quantity , int) or isinstance(new_quantity, bool):
+        return jsonify({"error": "New quantity needs to be a integer and not boolen"}), 400
+
+    if new_quantity <= 0:
+        return jsonify({"error": "Quantity must be greater than zero."}), 400
 
 
+    try:
+        response = requests.get(
+            f"{INVENTORY_SERVICE_URL}/inventory/{sku}",
+            timeout=5
+        )
+
+        if response.status_code == 404:
+            return jsonify({"error": "Inventory record not found."}), 404
+
+        if response.status_code != 200:
+            return jsonify({"error": "Inventory service is unavailable."}), 503
+        
+        inventory_data = response.json()
+
+        if not isinstance(inventory_data, dict):
+            return jsonify({"error": "Invalid inventory response."}), 502
+
+        available_quantity = inventory_data.get("available_quantity")
+
+        if not isinstance(available_quantity, int) or isinstance(available_quantity, bool):
+            return jsonify({"error": "Invalid available quantity."}), 502
+        
+    except requests.RequestException:
+        return jsonify({"error": "Inventory service is unavailable"}), 503
+
+    remaining = available_quantity - new_quantity
+
+    if remaining < 0:
+        return jsonify({"error": "Not enough stock available."}), 409
+    
+    cart_item.quantity = new_quantity
+    db.session.commit()
+
+    return jsonify({"success": "Cart item quantity has been updated successfully."}), 200
 
 
 
