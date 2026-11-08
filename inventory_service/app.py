@@ -127,20 +127,6 @@ def add_inventory():
         "quantity": new_inventory.quantity
     }), 201
 
-@app.route("/inventory/<string:sku>", methods=['GET'])
-def availability_check(sku):
-
-    inventory = db.session.scalar(db.select(InventoryRecords).where(InventoryRecords.sku == sku))
-
-    if not inventory:
-        return jsonify({"error": "SKU not found."}), 404
-
-    return jsonify({
-        "sku": inventory.sku,
-        "quantity": inventory.quantity,
-        "available": inventory.quantity > 0
-    }), 200
-
     
 
 

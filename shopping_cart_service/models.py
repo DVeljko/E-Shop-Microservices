@@ -7,11 +7,12 @@ db = SQLAlchemy()
 class Cart(db.Model):
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(nullable=False)
+    user_id: Mapped[int] = mapped_column(nullable=True)
+    guest_token: Mapped[str | None] = mapped_column(nullable=True,unique=True)
 
 class CartItem(db.Model):
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    card_id: Mapped[int] = mapped_column(ForeignKey("cart.id"), nullable=False)
+    cart_id: Mapped[int] = mapped_column(ForeignKey("cart.id"), nullable=False)
     sku: Mapped[str] = mapped_column(nullable=False)
     quantity: Mapped[int] = mapped_column(nullable=False)
