@@ -418,6 +418,7 @@ def show_cart():
     cart_item = db.session.scalars(db.select(CartItem).where(CartItem.cart_id == user_cart.id)).all()
 
     total_price = Decimal("0.00")
+    items = []
 
     for item in cart_item:
 
@@ -449,12 +450,18 @@ def show_cart():
                 return jsonify({"error": "Invalid catalog price."}), 502
 
             total_price += price * item.quantity
-            
 
+            items.append({
+                "sku": item.sku,
+                "quantity": item.quantity,
+                "unit_price": str(price),
+                "subtotal": str(item.quantity * price)
+            })
+            
         except requests.RequestException:
             return jsonify({"error": "Catalog service is unavailable" }), 503
 
-    return jsonify({"total_price": str(total_price)}), 200
+    return jsonify({"items": items,"total_price": str(total_price)}), 200
 
 
 
