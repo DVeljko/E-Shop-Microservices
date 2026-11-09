@@ -3,6 +3,7 @@ from flask_migrate import Migrate
 import requests
 import secrets
 
+from decimal import Decimal, InvalidOperation
 from models import db , Cart, CartItem
 
 from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity
@@ -383,6 +384,77 @@ def clear_cart():
     db.session.commit()
 
     return jsonify({"success": "Cart has been cleared."}), 200
+
+@app.route("/cart", methods=['GET'])
+@jwt_required(optional=True)
+def show_cart():
+
+    user_id = get_jwt_identity()
+    if user_id is not None:
+        auth_error = check_token_with_auth()
+        if auth_error is not None:
+            return auth_error
+
+        user_id = int(user_id)
+
+    if user_id is not None:
+        user_cart = db.session.scalar(db.select(Cart).where(Cart.user_id == user_id))
+
+        if not user_cart:
+            return jsonify({"error": "Cart not found."}), 404
+
+
+    else:
+        guest_token = request.cookies.get("guest_token")
+
+        if not guest_token:
+            return jsonify({"error": "Guest token not found."}), 404
+
+        user_cart = db.session.scalar(db.select(Cart).where(Cart.guest_token == guest_token, Cart.user_id.is_(None)))
+
+        if not user_cart:
+            return jsonify({"error": "Cart not found."}), 404
+
+    cart_item = db.session.scalars(db.select(CartItem).where(CartItem.cart_id == user_cart.id)).all()
+
+    total_price = Decimal("0.00")
+
+    for item in cart_item:
+
+        try:
+            response = requests.get(
+                f"{CATALOG_SERVICE_URL}/variants/{item.sku}",
+                timeout=5
+            )
+
+            if response.status_code == 404:
+                return jsonify({"error": "Catalog record not found"}), 404
+
+            if response.status_code != 200:
+                return jsonify({"error": "Catalog service is unavailable."}), 503
+
+            data = response.json()
+
+            if not isinstance(data, dict):
+                return jsonify({"error": "Invalid catalog response."}), 502
+
+            price = data.get("price")
+
+            try:
+                price = Decimal(str(price))
+            except InvalidOperation:
+                return jsonify({"error": "Invalid catalog price."}), 502
+
+            if not price.is_finite() or price <= 0:
+                return jsonify({"error": "Invalid catalog price."}), 502
+
+            total_price += price * item.quantity
+            
+
+        except requests.RequestException:
+            return jsonify({"error": "Catalog service is unavailable" }), 503
+
+    return jsonify({"total_price": str(total_price)}), 200
 
 
 

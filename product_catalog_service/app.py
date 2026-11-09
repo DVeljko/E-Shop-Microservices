@@ -1092,7 +1092,8 @@ def find_variant(sku):
     return jsonify({
         "id": variant.id,
         "product_id": variant.product_id,
-        "sku": variant.sku
+        "sku": variant.sku,
+        "price": variant.price
     }), 200
     
 if __name__ == "__main__":
