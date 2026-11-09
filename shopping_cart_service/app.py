@@ -296,9 +296,50 @@ def update_cart_item(sku):
 
     return jsonify({"success": "Cart item quantity has been updated successfully."}), 200
 
+@app.route("/cart/items/<string:sku>", methods=['DELETE'])
+@jwt_required(optional=True)
+def remove_cart_item(sku):
 
+    user_id = get_jwt_identity()
 
+    if user_id is not None:
+        auth_error = check_token_with_auth()
+        if auth_error is not None:
+            return auth_error
 
+        user_id = int(user_id)
+
+    if user_id is not None:
+        user_cart = db.session.scalar(db.select(Cart).where(Cart.user_id == user_id))
+
+        if not user_cart:
+            db.session.rollback()
+            return jsonify({"error": "Cart not found."}), 404
+
+    else:
+
+        guest_token = request.cookies.get("guest_token")
+
+        if not guest_token:
+            return jsonify({"error": "Guest token not found."}), 404
+
+        user_cart = db.session.scalar(db.select(Cart).where(Cart.guest_token == guest_token, Cart.user_id.is_(None)))
+
+        if not user_cart:
+            db.session.rollback()
+            return jsonify({"error": "Cart not found."}), 404
+
+    cart_item = db.session.scalar(db.select(CartItem).where(CartItem.sku == sku, CartItem.cart_id == user_cart.id))
+
+    if not cart_item:
+        return jsonify({"error": "Item in cart not found."}), 404
+
+    db.session.delete(cart_item)
+    db.session.commit()
+
+    return jsonify({"success": "Item successfully removed."}), 200
+
+    
 
 
 if __name__ == "__main__":
