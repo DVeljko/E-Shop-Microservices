@@ -4,9 +4,9 @@ import requests
 import secrets
 
 from decimal import Decimal, InvalidOperation
-from models import db , Cart, CartItem
+from models import db , Cart, CartItem, Coupon
 
-from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity
+from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity, get_jwt
 
 import os
 from dotenv import load_dotenv
@@ -457,12 +457,67 @@ def show_cart():
                 "unit_price": str(price),
                 "subtotal": str(item.quantity * price)
             })
-            
+
         except requests.RequestException:
             return jsonify({"error": "Catalog service is unavailable" }), 503
 
     return jsonify({"items": items,"total_price": str(total_price)}), 200
 
+# COUPONS
+@app.route("/coupons", methods=['POST'])
+@jwt_required()
+def create_coupon():
+
+    auth_error = check_token_with_auth()
+    if auth_error is not None:
+        return auth_error
+
+    claim = get_jwt()
+    role = claim.get("role")
+
+    if role != "admin":
+        return jsonify({"error": "Only admin access."}), 403
+
+    data = request.get_json()
+
+    if not isinstance(data , dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    if "code" not in data:
+        return jsonify({"error": "Code is required field."}), 400
+
+    code = data.get("code")
+
+    if not isinstance(code, str) or not code.strip():
+        return jsonify({"error": "Code must be an string and not empty field."}), 400
+
+    code = code.strip()
+
+    code_exists = db.session.scalar(db.select(Coupon).where(Coupon.code == code))
+
+    if code_exists:
+        return jsonify({"error": "Code with this name already exists."}), 409
+
+    if "discount_percent" not in data:
+        return jsonify({"error": "Discount Percent is a required field."}), 400
+
+    discount_percent = data.get("discount_percent")
+
+    if not isinstance(discount_percent, int) or isinstance(discount_percent, bool):
+        return jsonify({"error": "Discount percent needs to be an integer and not boolen."}), 400
+
+    if discount_percent <= 0 or discount_percent > 100:
+        return jsonify({"error": "Discount percent must be between 1 and 100."}), 400
+
+    new_coupon = Coupon(
+        code=code,
+        discount_percent=discount_percent
+    )
+
+    db.session.add(new_coupon)
+    db.session.commit()
+
+    return jsonify({"success": "You have created a new coupon."}), 201
 
 
 if __name__ == "__main__":
