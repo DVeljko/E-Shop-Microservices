@@ -519,6 +519,69 @@ def create_coupon():
 
     return jsonify({"success": "You have created a new coupon."}), 201
 
+@app.route("/cart/coupon", methods=['POST'])
+@jwt_required(optional=True)
+def apply_coupon():
+
+    user_id = get_jwt_identity()
+    if user_id is not None:
+        auth_error = check_token_with_auth()
+
+        if auth_error:
+            return auth_error
+
+        user_id = int(user_id)
+
+    if user_id is not None:
+
+        user_cart = db.session.scalar(db.select(Cart).where(Cart.user_id == user_id))
+
+        if not user_cart:
+            db.session.rollback()
+            return jsonify({"error": "User cart not found."}), 404
+
+    else:
+
+        guest_token = request.cookies.get("guest_token")
+
+        if not guest_token:
+            return jsonify({"error": "Guest token not found."}), 404
+
+        user_cart = db.session.scalar(db.select(Cart).where(Cart.guest_token == guest_token, Cart.user_id.is_(None)))
+
+        if not user_cart:
+            db.session.rollback()
+            return jsonify({"error": "User cart not found."}), 404
+
+    data = request.get_json()
+
+    if not isinstance(data , dict):
+        return jsonify({"error": "JSON body must be an object."}), 400
+
+    if "code" not in data:
+        return jsonify({"error": "Code is required."}), 400
+
+    code = data.get("code")
+
+    if not isinstance(code, str) or not code.strip():
+        return jsonify({"error": "Code must be a string and not empty field."}), 400
+
+    code = code.strip()
+
+    code_exists = db.session.scalar(db.select(Coupon).where(Coupon.code == code))
+
+    if not code_exists:
+        return jsonify({"error": "Coupon not found"}), 404
+
+
+    user_cart.coupon_id = code_exists.id
+    db.session.commit()
+
+    return jsonify({"success": "The coupon has been successfully applied."}), 200
+
+
+
+
 
 if __name__ == "__main__":
     app.run(debug=True, port=5008)
