@@ -589,8 +589,140 @@ def apply_coupon():
     return jsonify({"success": "The coupon has been successfully applied."}), 200
 
 
+@app.route("/cart/checkout/validate", methods=['GET'])
+@jwt_required(optional=True)
+def validate_cart_checkout():
+
+    user_id = get_jwt_identity()
+    if user_id is not None:
+        auth_error = check_token_with_auth()
+        if auth_error is not None:
+            return auth_error
+
+        user_id = int(user_id)
+
+    if user_id is not None:
+
+        user_cart = db.session.scalar(db.select(Cart).where(Cart.user_id == user_id))
+
+        if not user_cart:
+            return jsonify({"error":"Cart not found."}), 404
+
+    else:
+
+        guest_token = request.cookies.get("guest_token")
+
+        if not guest_token:
+            return jsonify({"error": "Guest token not found."}), 404
+
+        user_cart = db.session.scalar(db.select(Cart).where(Cart.guest_token == guest_token, Cart.user_id.is_(None)))
+
+        if not user_cart:
+            return jsonify({"error": "Cart not found."}), 404
+
+    cart_items = db.session.scalars(db.select(CartItem).where(CartItem.cart_id == user_cart.id)).all()
+
+    if not cart_items:
+        return jsonify({"error": "Cart is empty."}), 400
+    
+    total_price = Decimal("0.00")
+    all_items = []
+
+    for item in cart_items:
+
+        try:
+            inventory_response = requests.get(
+                f"{INVENTORY_SERVICE_URL}/inventory/{item.sku}",
+                timeout=5
+            )
+
+            if inventory_response.status_code == 404:
+                return jsonify({"error": "Inventory record not found."}), 404
+
+            if inventory_response.status_code != 200:
+                return jsonify({"error": "Inventory service is unavailable."}), 503
+
+            data = inventory_response.json()
+
+            if not isinstance(data , dict):
+                return jsonify({"error": "JSON body must be an object."}), 502
+
+            available_quantity = data.get("available_quantity")
+
+            if not isinstance(available_quantity, int) or isinstance(available_quantity, bool):
+                return jsonify({"error": "Invalid available quantity."}), 502
+
+            if item.quantity > available_quantity:
+                    return jsonify({
+                        "error": "Not enough stock available.",
+                        "sku": item.sku
+                    }), 409
+
+        except requests.RequestException:
+            return jsonify({"error": "Inventory service is unavailable."}), 503
 
 
+        try:
+            response = requests.get(
+                f"{CATALOG_SERVICE_URL}/variants/{item.sku}",
+                timeout=5
+            )
 
+            if response.status_code == 404:
+                return jsonify({"error": "Catalog record not found."}), 404
+
+            if response.status_code != 200:
+                return jsonify({"error": "Catalog service is unavailable."}), 503
+
+            data = response.json()
+
+            if not isinstance(data , dict):
+                return jsonify({"error": "Invalid catalog response."}), 502
+
+            price = data.get("price")
+
+            try:
+                price = Decimal(str(price))
+            except InvalidOperation:
+                return jsonify({"error": "Invalid catalog price."}), 502
+
+            if not price.is_finite() or price <= 0:
+                return jsonify({"error": "Invalid catalog price."}), 502
+            
+            total_price += price * item.quantity
+
+            all_items.append({
+                "sku": item.sku,
+                "quantity": item.quantity,
+                "unit_price": str(price),
+                "subtotal": str(item.quantity * price)
+            })
+
+            
+        except requests.RequestException:
+            return jsonify({"error":"Catalog service is unavailable."}), 503
+
+
+    discount_amount = Decimal("0.00")
+
+    coupon_exists = db.session.scalar(
+        db.select(Coupon).where(Coupon.id == user_cart.coupon_id)
+    )
+
+    if coupon_exists:
+        discount_perc = Decimal(coupon_exists.discount_percent) / Decimal("100")
+        discount_amount = round(total_price * discount_perc, 2)
+        total_price -= discount_amount
+
+    response = jsonify({
+        "items": all_items,
+        "total_price": str(total_price),
+        "discount_amount": str(discount_amount)
+    })
+
+    response.headers["Cache-Control"] = "no-store"
+
+    return response, 200
+        
 if __name__ == "__main__":
     app.run(debug=True, port=5008)
