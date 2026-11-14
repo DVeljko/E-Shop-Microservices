@@ -461,7 +461,16 @@ def show_cart():
         except requests.RequestException:
             return jsonify({"error": "Catalog service is unavailable" }), 503
 
-    return jsonify({"items": items,"total_price": str(total_price)}), 200
+    coupon_exists = db.session.scalar(db.select(Coupon).where(Coupon.id == user_cart.coupon_id))
+
+    if coupon_exists:
+        discount_perc = Decimal(coupon_exists.discount_percent) / Decimal("100")
+        discount_amount = round(total_price * discount_perc, 2)
+        total_price -= discount_amount
+
+        return jsonify({"items": items, "total_price": str(total_price), "discount_amount": str(discount_amount)}), 200
+
+    return jsonify({"items": items,"total_price": str(total_price), "discount_amount": "0.00", }), 200
 
 # COUPONS
 @app.route("/coupons", methods=['POST'])
