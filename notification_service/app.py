@@ -97,4 +97,4 @@ def send_password_reset():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5006)
+    app.run(debug=True, port=5006, host="0.0.0.0")

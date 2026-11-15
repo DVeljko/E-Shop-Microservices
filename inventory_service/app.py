@@ -473,4 +473,4 @@ def low_stock_alert(sku):
     }), 200
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5007)
+    app.run(debug=True, port=5007, host="0.0.0.0")

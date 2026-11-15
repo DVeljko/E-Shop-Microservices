@@ -1,0 +1,66 @@
+services:
+
+  auth_service:
+    build: ./auth_service
+
+    ports:
+      - "127.0.0.1:5005:5005"
+
+    env_file:
+      - ./auth_service/.env
+
+    volumes:
+      - ./auth_service/instance:/auth_service/instance
+
+
+  inventory_service:
+    build: ./inventory_service
+
+    ports:
+      - "127.0.0.1:5007:5007"
+
+    env_file:
+      - ./inventory_service/.env
+
+    volumes:
+      - ./inventory_service/instance:/inventory_service/instance
+
+
+  notification_service:
+    build: ./notification_service
+
+    ports:
+      - "127.0.0.1:5006:5006"
+
+    env_file:
+      - ./notification_service/.env
+
+
+  product_catalog_service:
+    build: ./product_catalog_service
+
+    ports:
+      - "127.0.0.1:5002:5002"
+
+    env_file:
+      - ./product_catalog_service/.env
+
+    volumes:
+      - ./product_catalog_service/instance:/product_catalog_service/instance
+
+  
+  shopping_cart_service:
+    build: ./shopping_cart_service
+
+    ports:
+      - "127.0.0.1:5008:5008"
+
+    env_file:
+      - ./shopping_cart_service/.env
+
+    volumes:
+      - ./shopping_cart_service/instance:/shopping_cart_service/instance
+  
+
+
+    
